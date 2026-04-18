@@ -463,17 +463,17 @@ _ENERGY_KEYWORDS = ("energie", "energy", "energia")
 
 # Map any emoji/word the LLM might use → canonical English DB name
 _ENERGY_TYPE_MAP: list[tuple[tuple[str, ...], str]] = [
-    (("fire",    "feuer",  "feu",    "fuoco", "🔥"), "Fire Energy"),
-    (("water",   "wasser", "eau",    "acqua", "💧"), "Water Energy"),
-    (("grass",   "pflanz", "plante", "erba",  "🌿", "🍃"), "Grass Energy"),
-    (("lightning","elektro","blitz", "foudre","fulmine","⚡","⚡️"), "Lightning Energy"),
-    (("fighting","kampf",  "combat", "lotta", "👊"), "Fighting Energy"),
-    (("psychic", "psycho", "psy",    "psico", "🔮", "💜"), "Psychic Energy"),
-    (("darkness","finster","ténèbres","oscurità","🌑"), "Darkness Energy"),
-    (("metal",   "metall", "métal",  "metallo","⚙", "🔩"), "Metal Energy"),
-    (("dragon",  "drache", "dragon", "drago", "🐉"), "Dragon Energy"),
-    (("fairy",   "fee",    "fée",    "fata",  "🌸"), "Fairy Energy"),
-    (("colorless","farblos","incolore","incolore"), "Colorless Energy"),
+    (("fire",    "feuer",  "feu",    "fuoco",     "🔥"),                         "Fire Energy"),
+    (("water",   "wasser", "eau",    "acqua",     "💧"),                         "Water Energy"),
+    (("grass",   "pflanz", "plante", "erba",      "🌿", "🍃"),                   "Grass Energy"),
+    (("lightning","elektro","blitz", "foudre",    "fulmine", "⚡", "⚡️"),        "Lightning Energy"),
+    (("fighting","fight",  "kampf",  "combat",    "lotta", "fist", "👊"),        "Fighting Energy"),
+    (("psychic", "psycho", "psy",    "psico",     "mental", "🔮", "💜"),         "Psychic Energy"),
+    (("darkness","dark",   "finster","dunkel",    "shadow", "ténèbres", "🌑"),   "Darkness Energy"),
+    (("metal",   "metall", "steel",  "stahl",     "métal",  "metallo", "⚙", "🔩"), "Metal Energy"),
+    (("dragon",  "drache", "dragon", "drago",     "🐉"),                         "Dragon Energy"),
+    (("fairy",   "fee",    "feen",   "fée",       "fata",   "🌸"),               "Fairy Energy"),
+    (("colorless","farblos","incolore"),                                           "Colorless Energy"),
 ]
 
 # Hue ranges (OpenCV: 0-179) → canonical energy name
@@ -548,7 +548,19 @@ def _detect_energy_type_by_color(img: np.ndarray) -> str | None:
     return None
 
 
-def cards_by_name(name: str) -> list[dict]:
+def _best_energy_card(matches: list[dict]) -> list[dict]:
+    """Return a single best-match energy card, preferring the base set."""
+    if not matches:
+        return matches
+    # Priority: base1 > other base* sets > first result
+    for preferred in ("base1", "base"):
+        for m in matches:
+            if m.get("set_id", "").startswith(preferred):
+                return [m]
+    return [matches[0]]
+
+
+
     """Look up cards by name (any language), exact then substring."""
     name_lower = name.lower().strip()
     conn = get_db()
@@ -684,7 +696,7 @@ async def scan(file: UploadFile = File(...)):
         # If name alone doesn't resolve type (e.g. "Basis-Energie"), ask LLM then color
         if canonical == llm_name:
             canonical = _detect_energy_type_llm(img) or _detect_energy_type_by_color(img) or llm_name
-        matches = enrich_with_set_name(cards_by_name(canonical))
+        matches = _best_energy_card(enrich_with_set_name(cards_by_name(canonical)))
         number, set_total, set_code = "?", None, None
     elif extracted is None:
         payload = {"matches": [], "error": "No collector number found"}
