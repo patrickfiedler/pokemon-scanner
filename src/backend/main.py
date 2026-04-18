@@ -694,11 +694,18 @@ async def scan(file: UploadFile = File(...)):
         extracted = extract_number(raw_text)
 
     # Energy cards identified by name — skip number lookup entirely
+    energy_method = None
     if llm_name and _is_energy_name(llm_name):
         canonical = _canonical_energy_name(llm_name)
         # If name alone doesn't resolve type (e.g. "Basis-Energie"), ask LLM then color
         if canonical == llm_name:
-            canonical = _detect_energy_type_llm(img) or _detect_energy_type_by_color(img) or llm_name
+            llm_energy = _detect_energy_type_llm(img)
+            color_energy = None if llm_energy else _detect_energy_type_by_color(img)
+            canonical = llm_energy or color_energy or llm_name
+            energy_method = "llm" if llm_energy else ("color" if color_energy else "fallback")
+        else:
+            energy_method = "name"
+        print(f"[Energy] name={llm_name!r} canonical={canonical!r} method={energy_method}")
         matches = _best_energy_card(enrich_with_set_name(cards_by_name(canonical)))
         number, set_total, set_code = "?", None, None
     elif extracted is None:
@@ -713,7 +720,9 @@ async def scan(file: UploadFile = File(...)):
             matches = _filter_by_name(matches, llm_name)
 
     payload = {"number": number, "set_total": set_total, "set_code": set_code,
-               "matches": matches, "llm_used": llm_used, "llm_name": llm_name}
+               "matches": matches, "llm_used": llm_used, "llm_name": llm_name,
+               "energy_canonical": canonical if energy_method else None,
+               "energy_method": energy_method}
     save_debug(img, roi, raw_text, payload)
     return {"ocr_raw": raw_text, "debug_image": debug_image, **payload}
 
