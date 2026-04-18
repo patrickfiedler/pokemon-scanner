@@ -208,6 +208,8 @@ captureBtn.addEventListener("click", async () => {
   const vidW = video.videoWidth, vidH = video.videoHeight;
   if (!vidW || !vidH) { showError("Kamera noch nicht bereit. Bitte kurz warten."); return; }
   const vidAspect = vidW / vidH;
+
+  // Step 1: region of video that maps to the full viewfinder (object-fit: cover)
   let sx, sy, sw, sh;
   if (vidAspect > vfAspect) {
     sh = vidH; sw = Math.round(vidH * vfAspect);
@@ -216,8 +218,17 @@ captureBtn.addEventListener("click", async () => {
     sw = vidW; sh = Math.round(vidW / vfAspect);
     sx = 0; sy = Math.round((vidH - sh) / 2);
   }
-  canvas.width = sw; canvas.height = sh;
-  canvas.getContext("2d").drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+
+  // Step 2: crop to card frame (46% wide centered, 86% tall 7%–93%) + 3% margin
+  // These fractions must match #card-frame CSS: width:46%, left:50%, top:7%, bottom:7%
+  const MARGIN = 0.03;
+  const cfLeft = Math.max(0, Math.round((0.27 - MARGIN) * sw));
+  const cfTop  = Math.max(0, Math.round((0.07 - MARGIN) * sh));
+  const cfW    = Math.min(sw - cfLeft, Math.round((0.46 + 2 * MARGIN) * sw));
+  const cfH    = Math.min(sh - cfTop,  Math.round((0.86 + 2 * MARGIN) * sh));
+
+  canvas.width = cfW; canvas.height = cfH;
+  canvas.getContext("2d").drawImage(video, sx + cfLeft, sy + cfTop, cfW, cfH, 0, 0, cfW, cfH);
   canvas.toBlob(async (blob) => {
     if (!blob) { showError("Kamerabild konnte nicht gelesen werden. Bitte erneut versuchen."); return; }
     showLoading();
