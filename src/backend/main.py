@@ -408,10 +408,21 @@ def _detect_energy_type_llm(img: np.ndarray) -> str | None:
                         {"type": "text",
                          "text": (
                              "This is a Pokémon Basic Energy card. "
-                             "Look at the large central energy symbol AND the card's background color "
-                             "to identify the type. Symbols: flame=fire, water drop=water, leaf=grass, "
-                             "bolt=lightning, fist=fighting, eye/swirl=psychic, crescent/dark=darkness, "
-                             "gear/orb=metal, claw=dragon, star=fairy, plain=colorless. "
+                             "Identify the energy type using the symbol shape and background color.\n"
+                             "Types and their key features:\n"
+                             "- fire: ORANGE/RED background, flame symbol\n"
+                             "- water: BLUE background, water drop symbol\n"
+                             "- grass: GREEN background, leaf symbol\n"
+                             "- lightning: YELLOW background, bolt symbol\n"
+                             "- fighting: ORANGE-BROWN/BEIGE background, fist symbol\n"
+                             "- psychic: BRIGHT PINK or HOT PINK background, eye/swirl symbol\n"
+                             "- darkness: VERY DARK BLACK background (nearly completely black), crescent symbol\n"
+                             "- metal: SILVER/STEEL GREY METALLIC background (shiny grey, NOT white), gear symbol\n"
+                             "- dragon: MULTICOLOR background, claw symbol\n"
+                             "- fairy: PASTEL PINK/LIGHT PINK background, star symbol\n"
+                             "- colorless: PLAIN WHITE or CREAM background (very light), simple star\n"
+                             "IMPORTANT: darkness=black (not purple), metal=shiny grey (not white), "
+                             "psychic=bright pink (not dark).\n"
                              "Reply with ONLY one word from: fire, water, grass, lightning, fighting, "
                              "psychic, darkness, metal, dragon, fairy, colorless. No other words."
                          )},
@@ -698,9 +709,22 @@ async def scan(file: UploadFile = File(...)):
         # If name alone doesn't resolve type (e.g. "Basis-Energie"), ask LLM then color
         if canonical == llm_name:
             llm_energy = _detect_energy_type_llm(img)
-            color_energy = None if llm_energy else _detect_energy_type_by_color(img)
-            canonical = llm_energy or color_energy or llm_name
-            energy_method = "llm" if llm_energy else ("color" if color_energy else "fallback")
+            color_energy = _detect_energy_type_by_color(img)
+            # Color detector is more reliable for darkness/metal (low saturation).
+            # If LLM guessed psychic/colorless but color says darkness/metal, trust color.
+            _color_wins = {"Darkness Energy", "Metal Energy"}
+            if color_energy in _color_wins and llm_energy not in _color_wins:
+                canonical = color_energy
+                energy_method = "color"
+            elif llm_energy:
+                canonical = llm_energy
+                energy_method = "llm"
+            elif color_energy:
+                canonical = color_energy
+                energy_method = "color"
+            else:
+                canonical = llm_name
+                energy_method = "fallback"
         else:
             energy_method = "name"
         print(f"[Energy] name={llm_name!r} canonical={canonical!r} method={energy_method}")
