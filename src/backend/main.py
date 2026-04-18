@@ -406,7 +406,7 @@ def _filter_by_name(matches: list[dict], name: str) -> list[dict]:
 # Routes
 # ---------------------------------------------------------------------------
 
-_ENERGY_KEYWORDS = ("energie", "energy")
+_ENERGY_KEYWORDS = ("energie", "energy", "energia")
 
 # Map any emoji/word the LLM might use → canonical English DB name
 _ENERGY_TYPE_MAP: list[tuple[tuple[str, ...], str]] = [
@@ -423,6 +423,18 @@ _ENERGY_TYPE_MAP: list[tuple[tuple[str, ...], str]] = [
     (("colorless","farblos","incolore","incolore"), "Colorless Energy"),
 ]
 
+# Hue ranges (OpenCV: 0-179) → canonical energy name
+# Each entry: (hue_min, hue_max, canonical)
+# Red wraps around 0/179, handled specially below.
+_HUE_ENERGY_MAP = [
+    (18,  35,  "Lightning Energy"),   # yellow
+    (36,  85,  "Grass Energy"),       # green
+    (86, 130,  "Water Energy"),       # blue
+    (131, 160, "Psychic Energy"),     # purple/violet
+    (161, 179, "Fire Energy"),        # red (upper wrap)
+    (0,   17,  "Fire Energy"),        # red (lower wrap)
+]
+
 
 def _is_energy_name(name: str) -> bool:
     n = name.lower()
@@ -430,12 +442,57 @@ def _is_energy_name(name: str) -> bool:
 
 
 def _canonical_energy_name(name: str) -> str:
-    """Map LLM-returned energy name (may include emoji) to canonical DB name."""
+    """Map LLM-returned energy name (may include emoji/German) to canonical DB name."""
     n = name.lower()
     for keywords, canonical in _ENERGY_TYPE_MAP:
         if any(kw in n for kw in keywords):
             return canonical
-    return name  # unknown type — pass through as-is
+    return name  # unknown type — fall through to color detection
+
+
+def _detect_energy_type_by_color(img: np.ndarray) -> str | None:
+    """Determine energy type from dominant card color.
+
+    Crops the central 40% of the card (where the energy symbol is large),
+    converts to HSV, filters out near-white and near-black pixels,
+    then finds the most common hue bucket.
+
+    Returns a canonical energy name like 'Fire Energy', or None if unclear.
+    """
+    h, w = img.shape[:2]
+    # Central region: vertically 25-75%, horizontally 15-85%
+    crop = img[int(h * 0.25):int(h * 0.75), int(w * 0.15):int(w * 0.85)]
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+
+    # Mask out near-white (card border) and near-black (darkness energy needs special handling)
+    s = hsv[:, :, 1]  # saturation
+    v = hsv[:, :, 2]  # value/brightness
+    colorful_mask = (s > 60) & (v > 60)  # keep only vivid, non-dark pixels
+
+    # Special case: if almost no colorful pixels → Darkness or Metal (dark/grey)
+    colorful_ratio = colorful_mask.sum() / colorful_mask.size
+    if colorful_ratio < 0.05:
+        # Check if mostly dark → Darkness, or grey/metallic → Metal
+        mean_v = v.mean()
+        mean_s = s.mean()
+        return "Darkness Energy" if mean_v < 80 else "Metal Energy"
+
+    hues = hsv[:, :, 0][colorful_mask]
+    if len(hues) == 0:
+        return None
+
+    # Find dominant hue using histogram (bins of width ~10 degrees)
+    hist, bin_edges = np.histogram(hues, bins=18, range=(0, 180))
+    dominant_bin = int(np.argmax(hist))
+    dominant_hue = int(bin_edges[dominant_bin])
+
+    for hue_min, hue_max, canonical in _HUE_ENERGY_MAP:
+        if hue_min <= dominant_hue <= hue_max:
+            print(f"[Color] dominant hue={dominant_hue} → {canonical}")
+            return canonical
+
+    print(f"[Color] dominant hue={dominant_hue} → unmapped")
+    return None
 
 
 def cards_by_name(name: str) -> list[dict]:
@@ -571,6 +628,9 @@ async def scan(file: UploadFile = File(...)):
     # Energy cards identified by name — skip number lookup entirely
     if llm_name and _is_energy_name(llm_name):
         canonical = _canonical_energy_name(llm_name)
+        # If name alone doesn't resolve type (e.g. "Basis-Energie"), use color
+        if canonical == llm_name:
+            canonical = _detect_energy_type_by_color(img) or llm_name
         matches = enrich_with_set_name(cards_by_name(canonical))
         number, set_total, set_code = "?", None, None
     elif extracted is None:
