@@ -23,7 +23,7 @@ import urllib.request
 from pathlib import Path
 
 BASE_URL = "https://api.tcgdex.net/v2"
-LANGUAGES = ["en", "de", "it", "ja"]
+LANGUAGES = ["en", "de", "fr", "it", "ja"]
 DB_PATH = Path(__file__).parent / "data" / "cards.db"
 
 
@@ -85,6 +85,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             id       TEXT PRIMARY KEY,
             name_en  TEXT,
             name_de  TEXT,
+            name_fr  TEXT,
             name_it  TEXT,
             name_ja  TEXT,
             series   TEXT,
@@ -97,6 +98,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             number   TEXT NOT NULL,
             name_en  TEXT,
             name_de  TEXT,
+            name_fr  TEXT,
             name_it  TEXT,
             name_ja  TEXT,
             image    TEXT,
@@ -144,12 +146,12 @@ def main() -> None:
             or en_set.get("cardCount", {}).get("total")
             or 0
         )
-        set_names = {"en": en_set.get("name"), "de": None, "it": None, "ja": None}
+        set_names = {"en": en_set.get("name"), "de": None, "fr": None, "it": None, "ja": None}
 
         # Localised card names: localId -> {lang: name}
         card_name_map: dict[str, dict[str, str]] = {}
 
-        for lang in ["de", "it", "ja"]:
+        for lang in ["de", "fr", "it", "ja"]:
             if set_id not in lang_set_ids[lang]:
                 continue
             lang_set = fetch_json(f"{BASE_URL}/{lang}/sets/{set_id}")
@@ -162,9 +164,9 @@ def main() -> None:
 
         # Insert set
         conn.execute(
-            "INSERT OR REPLACE INTO sets VALUES (?,?,?,?,?,?,?)",
-            (set_id, set_names["en"], set_names["de"], set_names["it"],
-             set_names["ja"], series, total_cards),
+            "INSERT OR REPLACE INTO sets VALUES (?,?,?,?,?,?,?,?)",
+            (set_id, set_names["en"], set_names["de"], set_names["fr"],
+             set_names["it"], set_names["ja"], series, total_cards),
         )
 
         # Insert cards
@@ -176,11 +178,11 @@ def main() -> None:
             rows.append((
                 card["id"], set_id, local_id,
                 card.get("name"),
-                names.get("de"), names.get("it"), names.get("ja"),
+                names.get("de"), names.get("fr"), names.get("it"), names.get("ja"),
                 img,
             ))
         conn.executemany(
-            "INSERT OR REPLACE INTO cards VALUES (?,?,?,?,?,?,?,?)", rows
+            "INSERT OR REPLACE INTO cards VALUES (?,?,?,?,?,?,?,?,?)", rows
         )
         conn.commit()
         print(f" — {len(rows)} cards")
@@ -189,10 +191,11 @@ def main() -> None:
     n_sets  = conn.execute("SELECT COUNT(*) FROM sets").fetchone()[0]
     n_cards = conn.execute("SELECT COUNT(*) FROM cards").fetchone()[0]
     n_de    = conn.execute("SELECT COUNT(*) FROM cards WHERE name_de IS NOT NULL").fetchone()[0]
+    n_fr    = conn.execute("SELECT COUNT(*) FROM cards WHERE name_fr IS NOT NULL").fetchone()[0]
     n_it    = conn.execute("SELECT COUNT(*) FROM cards WHERE name_it IS NOT NULL").fetchone()[0]
     n_ja    = conn.execute("SELECT COUNT(*) FROM cards WHERE name_ja IS NOT NULL").fetchone()[0]
     print(f"\nDone: {n_sets} sets, {n_cards} cards")
-    print(f"  DE names: {n_de} | IT: {n_it} | JA: {n_ja}")
+    print(f"  DE names: {n_de} | FR: {n_fr} | IT: {n_it} | JA: {n_ja}")
     print(f"  DB: {DB_PATH}")
     conn.close()
 
