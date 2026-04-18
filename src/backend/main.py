@@ -96,8 +96,12 @@ def save_debug(img: np.ndarray, roi: np.ndarray, ocr_raw: str, result: dict) -> 
     base = DEBUG_DIR / ts
     cv2.imwrite(str(base) + "_original.jpg", img)
     cv2.imwrite(str(base) + "_roi.jpg", roi)
+    # Omit image URLs from JSON to keep it readable
+    slim = {k: v for k, v in result.items() if k != "matches"}
+    slim["match_count"] = len(result.get("matches", []))
+    slim["match_names"] = [m.get("name") for m in result.get("matches", [])]
     (base.parent / (base.name + "_result.json")).write_text(
-        json.dumps({"ocr_raw": ocr_raw, **result}, ensure_ascii=False, indent=2)
+        json.dumps({"ocr_raw": ocr_raw, **slim}, ensure_ascii=False, indent=2)
     )
 
 
@@ -150,7 +154,6 @@ def cards_by_number(number: str, set_total: str | None = None) -> list[dict]:
     conn = get_db()
     try:
         if set_total:
-            # Filter to sets whose printed total matches — usually narrows to 1 result
             rows = conn.execute(
                 """SELECT c.* FROM cards c
                    JOIN sets s ON c.set_id = s.id
@@ -158,8 +161,7 @@ def cards_by_number(number: str, set_total: str | None = None) -> list[dict]:
                      AND s.total = ?""",
                 (n, n.zfill(3), int(set_total)),
             ).fetchall()
-            # Fall back to unfiltered if the total matched nothing (data gap)
-            if not rows:
+            if not rows:  # Fall back if total matched nothing
                 rows = conn.execute(
                     "SELECT * FROM cards WHERE CAST(number AS TEXT) = ? OR number = ?",
                     (n, n.zfill(3)),
@@ -175,7 +177,7 @@ def cards_by_number(number: str, set_total: str | None = None) -> list[dict]:
 
 
 def enrich_with_set_name(matches: list[dict]) -> list[dict]:
-    """Add set_name to each card dict (avoids a second round-trip per card)."""
+    """Add set_name_* fields and compute best display name for each card."""
     if not matches:
         return matches
     set_ids = list({m["set_id"] for m in matches})
@@ -183,13 +185,20 @@ def enrich_with_set_name(matches: list[dict]) -> list[dict]:
     try:
         placeholders = ",".join("?" * len(set_ids))
         rows = conn.execute(
-            f"SELECT id, name FROM sets WHERE id IN ({placeholders})", set_ids
+            f"SELECT id, name_en, name_de, name_it, name_ja FROM sets WHERE id IN ({placeholders})",
+            set_ids,
         ).fetchall()
-        names = {r["id"]: r["name"] for r in rows}
+        sets = {r["id"]: dict(r) for r in rows}
     finally:
         conn.close()
     for m in matches:
-        m["set_name"] = names.get(m["set_id"], m["set_id"])
+        s = sets.get(m["set_id"], {})
+        # Best set name: German > English > raw ID
+        m["set_name"] = s.get("name_de") or s.get("name_en") or m["set_id"]
+        # Best card name: German > English > Italian > Japanese
+        m["name"] = m.get("name_de") or m.get("name_en") or m.get("name_it") or m.get("name_ja") or "?"
+        # Expose image field (was image_small in old schema)
+        m["image_small"] = m.get("image")
     return matches
 
 

@@ -17,8 +17,7 @@ echo "=== Setting up Python venv ==="
 python3 -m venv venv
 venv/bin/pip install -r requirements.txt
 
-echo "=== Importing card data ==="
-git clone https://github.com/PokemonTCG/pokemon-tcg-data data/pokemon-tcg-data
+echo "=== Importing card data (fetches from TCGdex API, ~5-10 min) ==="
 venv/bin/python import_cards.py
 
 echo "=== Setting passphrase ==="
