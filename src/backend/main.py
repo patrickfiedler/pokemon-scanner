@@ -289,15 +289,21 @@ def extract_number(text: str) -> tuple[str, str, str | None]:
 # Vision LLM fallback
 # ---------------------------------------------------------------------------
 
-def _resize_for_llm(jpg_bytes: bytes, max_width: int = 800) -> bytes:
-    """Resize image to max_width px wide (keeps aspect ratio) to reduce token cost."""
+def _crop_for_llm(jpg_bytes: bytes) -> bytes:
+    """Crop the bottom 25% of the card image and upscale it.
+
+    Sends only the area where the collector number lives, so the LLM doesn't
+    confuse it with HP, attack damage, Pokédex numbers, etc.
+    """
     arr = np.frombuffer(jpg_bytes, np.uint8)
     img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
     h, w = img.shape[:2]
-    if w > max_width:
-        scale = max_width / w
-        img = cv2.resize(img, (max_width, int(h * scale)), interpolation=cv2.INTER_AREA)
-    _, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    crop = img[int(h * 0.75):, :]
+    # Upscale so the small number text is clearly legible
+    target_w = 1200
+    scale = target_w / w
+    crop = cv2.resize(crop, (target_w, int(crop.shape[0] * scale)), interpolation=cv2.INTER_CUBIC)
+    _, buf = cv2.imencode(".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, 95])
     return buf.tobytes()
 
 
@@ -306,7 +312,7 @@ def extract_number_llm(jpg_bytes: bytes) -> tuple[str, str, None] | None:
     tuple as extract_number(), or None if unavailable / unreadable."""
     if not OVH_API_KEY:
         return None
-    b64 = base64.b64encode(_resize_for_llm(jpg_bytes)).decode()
+    b64 = base64.b64encode(_crop_for_llm(jpg_bytes)).decode()
     try:
         resp = httpx.post(
             _OVH_LLM_URL,
@@ -320,10 +326,13 @@ def extract_number_llm(jpg_bytes: bytes) -> tuple[str, str, None] | None:
                          "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
                         {"type": "text",
                          "text": (
-                             "This is a Pokémon trading card. "
-                             "What is the collector number printed at the bottom? "
-                             "Reply with ONLY the number in format X/Y, e.g. '7/15'. "
-                             "If you cannot read it, reply with 'unknown'."
+                             "This is the bottom strip of a Pokémon trading card. "
+                             "Find the collector number — it is printed in small text "
+                             "at the bottom-left corner, in the format NUMBER/TOTAL "
+                             "where both are integers, e.g. '7/15' or '45/198'. "
+                             "It is NOT the HP, attack damage, Pokédex number, or year. "
+                             "Reply with ONLY that number in format X/Y. "
+                             "If you cannot read it clearly, reply with 'unknown'."
                          )},
                     ],
                 }],
@@ -333,6 +342,7 @@ def extract_number_llm(jpg_bytes: bytes) -> tuple[str, str, None] | None:
         )
         resp.raise_for_status()
         text = resp.json()["choices"][0]["message"]["content"].strip()
+        print(f"[LLM] response: {text!r}")
         m = NUMBER_RE.search(text)
         if m:
             return m.group(1).lstrip("0") or "0", m.group(2), None
