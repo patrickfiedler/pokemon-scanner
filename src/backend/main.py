@@ -416,11 +416,21 @@ async def card_image(card_id: str, _=Depends(require_auth)):
     if not row or not row["image"]:
         raise HTTPException(404, "No image available for this card")
 
-    url = row["image"] + "/low.webp"
-    try:
-        with urllib.request.urlopen(url, timeout=10) as r:
-            img_data = r.read()
-    except Exception:
+    # Try German image first (TCGdex serves /de/ for localised card art),
+    # fall back to English if not available (e.g. Japanese-only sets).
+    base_url = row["image"]
+    urls_to_try = [base_url.replace("/en/", "/de/", 1) + "/low.webp",
+                   base_url + "/low.webp"]
+    img_data = None
+    for url in urls_to_try:
+        try:
+            with urllib.request.urlopen(url, timeout=10) as r:
+                if r.status == 200:
+                    img_data = r.read()
+                    break
+        except Exception:
+            continue
+    if not img_data:
         raise HTTPException(502, "Could not fetch image from TCGdex")
 
     cache_file.write_bytes(img_data)
