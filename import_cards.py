@@ -19,20 +19,23 @@ Usage:
     python import_cards.py --force   # full re-import of all sets
 """
 
+import http.client
 import json
 import sqlite3
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
 BASE_URL = "https://api.tcgdex.net/v2"
 LANGUAGES = ["en", "de", "fr", "it", "ja"]
 DB_PATH = Path(__file__).parent / "data" / "cards.db"
+POKEAPI_CACHE = Path(__file__).parent / "data" / "pokeapi_cache"
 
 
 # ---------------------------------------------------------------------------
-# HTTP helper
+# HTTP helpers
 # ---------------------------------------------------------------------------
 
 def fetch_json(url: str, retries: int = 3) -> dict | list | None:
@@ -50,6 +53,44 @@ def fetch_json(url: str, retries: int = 3) -> dict | list | None:
                 time.sleep(1.5 ** attempt)
             else:
                 print(f"  WARN: {url}: {e}")
+    return None
+
+
+# Persistent HTTPS connection to PokeAPI — reuses TCP+TLS across all species lookups.
+_pokeapi_conn: http.client.HTTPSConnection | None = None
+
+def _pokeapi_get(path: str) -> dict | None:
+    """GET from pokeapi.co with connection reuse and local file cache."""
+    global _pokeapi_conn
+    POKEAPI_CACHE.mkdir(parents=True, exist_ok=True)
+    cache_file = POKEAPI_CACHE / f"{path.lstrip('/').replace('/', '_')}.json"
+
+    if cache_file.exists():
+        raw = cache_file.read_text()
+        return json.loads(raw)  # may be null (cached 404)
+
+    for attempt in range(3):
+        try:
+            if _pokeapi_conn is None:
+                _pokeapi_conn = http.client.HTTPSConnection("pokeapi.co", timeout=15)
+            _pokeapi_conn.request("GET", path, headers={"User-Agent": "pokemon-scanner/1.0 (local import)"})
+            resp = _pokeapi_conn.getresponse()
+            body = resp.read()
+            if resp.status == 404:
+                cache_file.write_text("null")
+                return None
+            if resp.status == 200:
+                data = json.loads(body)
+                cache_file.write_text(json.dumps(data))
+                return data
+            # Unexpected status — reset connection and retry
+            _pokeapi_conn.close()
+            _pokeapi_conn = None
+            time.sleep(1.0)
+        except Exception:
+            _pokeapi_conn = None
+            if attempt < 2:
+                time.sleep(1.5 ** attempt)
     return None
 
 
@@ -96,8 +137,8 @@ def parse_card_name(name_en: str) -> tuple[str, str]:
 
 
 def fetch_pokeapi_names(slug: str) -> dict[str, str]:
-    """Return {lang_code: name} from PokeAPI for a species slug."""
-    data = fetch_json(f"https://pokeapi.co/api/v2/pokemon-species/{slug}")
+    """Return {lang_code: name} from PokeAPI, with local file cache."""
+    data = _pokeapi_get(f"/api/v2/pokemon-species/{slug}")
     if not data:
         return {}
     want = {"de", "fr", "it", "ja"}
@@ -295,12 +336,15 @@ DB: """ + str(DB_PATH))
         print(f"\nPokeAPI: {len(missing_names)} card names → {len(slug_order)} unique species to look up…")
         found = 0
         for idx, slug in enumerate(slug_order, 1):
+            cache_file = POKEAPI_CACHE / f"api_v2_pokemon-species_{slug}.json"
+            from_cache = cache_file.exists()
             names = fetch_pokeapi_names(slug)
             slug_cache[slug] = names
             if names:
                 found += 1
             print("." if names else "x", end="" if idx % 50 else f" {idx}\n", flush=True)
-            time.sleep(0.07)  # be polite to PokeAPI
+            if not from_cache:
+                time.sleep(0.07)  # courtesy delay only for live requests
         print(f"\n  {found}/{len(slug_order)} species found.")
 
         # Update cards — COALESCE keeps existing TCGdex translations intact
