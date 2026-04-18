@@ -14,8 +14,18 @@
 </head>
 <body>
 
+  <!-- Password overlay (shown on first visit or after session expiry) -->
+  <div id="password-overlay" hidden>
+    <div id="password-picker">
+      <h2>🔒 PokéScan</h2>
+      <input id="password-input" type="password" placeholder="Passwort" autocomplete="current-password" />
+      <button id="password-btn">Einloggen</button>
+      <p id="password-error" hidden>Falsches Passwort</p>
+    </div>
+  </div>
+
   <!-- Profile picker overlay (shown before any content) -->
-  <div id="profile-overlay">
+  <div id="profile-overlay" hidden>
     <div id="profile-picker">
       <h2>Wer bist du?</h2>
       <div id="profile-buttons">

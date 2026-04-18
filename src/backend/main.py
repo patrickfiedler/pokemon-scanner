@@ -8,6 +8,8 @@ Endpoints:
 """
 
 import base64
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -21,10 +23,9 @@ from pathlib import Path
 import cv2
 import numpy as np
 import pytesseract
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -133,7 +134,7 @@ def _parse_json_fields(card: dict) -> dict:
     return card
 
 # ---------------------------------------------------------------------------
-# Auth — middleware covers ALL requests including static files
+# Auth — token middleware; token is derived from password via HMAC
 # ---------------------------------------------------------------------------
 
 PASSPHRASE = os.environ.get("SCANNER_PASSWORD", "")
@@ -142,40 +143,34 @@ PROFILE_NAMES  = [
     os.environ.get("PROFILE_2_NAME", "Misty"),
 ]
 PROFILE_COLORS = ["#e63946", "#4895ef"]  # red, blue — fixed
-_REALM = 'Basic realm="Pokemon Scanner"'
-_CHALLENGE = Response(
-    content="Unauthorized", status_code=401,
-    headers={"WWW-Authenticate": _REALM},
-)
+
+# Stable token: changes only when SCANNER_PASSWORD changes.
+# No server-side state needed; survives restarts.
+_TOKEN = hmac.new(PASSPHRASE.encode(), b"pokescan-v1", hashlib.sha256).hexdigest()
+
+# Paths that never require a token (static assets have a "." in last segment)
+_PUBLIC = {"/api/login", "/"}
 
 
-class BasicAuthMiddleware(BaseHTTPMiddleware):
+def _is_static(path: str) -> bool:
+    return "." in path.rsplit("/", 1)[-1]
+
+
+class TokenAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if not PASSPHRASE:
             raise RuntimeError("SCANNER_PASSWORD environment variable is not set")
-        auth = request.headers.get("Authorization", "")
-        if auth.startswith("Basic "):
-            try:
-                decoded = base64.b64decode(auth[6:]).decode()
-                _, _, password = decoded.partition(":")
-                if secrets.compare_digest(password.encode(), PASSPHRASE.encode()):
-                    return await call_next(request)
-            except Exception:
-                pass
-        return _CHALLENGE
-
-
-# Keep the dependency for API routes too (documents auth in OpenAPI schema)
-security = HTTPBasic()
-
-
-def require_auth(credentials: HTTPBasicCredentials = Depends(security)):
-    pass  # middleware already verified; this just adds auth to OpenAPI docs
+        if request.url.path in _PUBLIC or _is_static(request.url.path):
+            return await call_next(request)
+        token = request.headers.get("X-Token", "")
+        if secrets.compare_digest(token, _TOKEN):
+            return await call_next(request)
+        return JSONResponse({"detail": "Unauthorized"}, status_code=401)
 
 
 app = FastAPI(title="Pokemon Card Scanner")
 
-app.add_middleware(BasicAuthMiddleware)
+app.add_middleware(TokenAuthMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -345,8 +340,16 @@ def enrich_with_set_name(matches: list[dict]) -> list[dict]:
     return matches
 
 
+@app.post("/api/login")
+async def login(body: dict):
+    """Validate password and return a long-lived auth token."""
+    if not secrets.compare_digest(body.get("password", ""), PASSPHRASE):
+        raise HTTPException(401, "Wrong password")
+    return {"token": _TOKEN}
+
+
 @app.post("/scan")
-async def scan(file: UploadFile = File(...), _=Depends(require_auth)):
+async def scan(file: UploadFile = File(...)):
     """Receive a card photo, OCR the collector number, return matching cards."""
     data = await file.read()
     arr = np.frombuffer(data, np.uint8)
@@ -372,7 +375,7 @@ async def scan(file: UploadFile = File(...), _=Depends(require_auth)):
 
 
 @app.get("/lookup")
-def lookup(number: str, _=Depends(require_auth)):
+def lookup(number: str):
     """Look up a card by manually entered collector number, e.g. ?number=45/198"""
     result = extract_number(number)
     if result is None:
@@ -392,7 +395,7 @@ def lookup(number: str, _=Depends(require_auth)):
 
 
 @app.get("/card/{card_id}")
-def get_card(card_id: str, _=Depends(require_auth)):
+def get_card(card_id: str):
     conn = get_db()
     try:
         row = conn.execute("SELECT * FROM cards WHERE id = ?", (card_id,)).fetchone()
@@ -406,7 +409,7 @@ def get_card(card_id: str, _=Depends(require_auth)):
 
 
 @app.get("/card-image/{card_id}")
-async def card_image(card_id: str, _=Depends(require_auth)):
+async def card_image(card_id: str):
     """Serve card image from local cache; fetch from TCGdex on first request."""
     # Sanitise: only allow characters that appear in TCGdex card IDs
     if not re.fullmatch(r"[a-zA-Z0-9_\-]+", card_id):
@@ -464,7 +467,7 @@ def get_profiles(_=Depends(require_auth)):
 
 
 @app.get("/collection/{user_id}")
-def get_collection(user_id: str, _=Depends(require_auth)):
+def get_collection(user_id: str):
     conn = get_db()
     try:
         rows = conn.execute(
@@ -480,7 +483,7 @@ def get_collection(user_id: str, _=Depends(require_auth)):
 
 
 @app.get("/collection/{user_id}/{card_id}")
-def get_collection_item(user_id: str, card_id: str, _=Depends(require_auth)):
+def get_collection_item(user_id: str, card_id: str):
     conn = get_db()
     try:
         row = conn.execute(
@@ -493,7 +496,7 @@ def get_collection_item(user_id: str, card_id: str, _=Depends(require_auth)):
 
 
 @app.post("/collection/{user_id}/{card_id}/add")
-def add_to_collection(user_id: str, card_id: str, _=Depends(require_auth)):
+def add_to_collection(user_id: str, card_id: str):
     conn = get_db()
     try:
         # Lazy enrichment on first add — silent fallback if TCGdex is unavailable
@@ -515,7 +518,7 @@ def add_to_collection(user_id: str, card_id: str, _=Depends(require_auth)):
 
 
 @app.post("/collection/{user_id}/{card_id}/remove")
-def remove_from_collection(user_id: str, card_id: str, _=Depends(require_auth)):
+def remove_from_collection(user_id: str, card_id: str):
     conn = get_db()
     try:
         row = conn.execute(

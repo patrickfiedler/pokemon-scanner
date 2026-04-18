@@ -11,6 +11,41 @@ body {
   overflow: hidden; /* app handles its own scroll */
 }
 
+/* ── Password overlay ────────────────────────────────────── */
+#password-overlay {
+  position: fixed; inset: 0;
+  background: #1a1a2e;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 200;
+}
+#password-picker {
+  text-align: center;
+  padding: 2rem;
+  display: flex; flex-direction: column; align-items: center; gap: 1rem;
+}
+#password-picker h2 { font-size: 2rem; margin-bottom: 0.5rem; }
+#password-input {
+  font-size: 1.2rem;
+  padding: 0.6rem 1rem;
+  border-radius: 10px;
+  border: 2px solid #444;
+  background: #2a2a4e;
+  color: #eee;
+  width: 220px;
+  text-align: center;
+}
+#password-btn {
+  font-size: 1.1rem;
+  padding: 0.6rem 2rem;
+  border-radius: 10px;
+  border: none;
+  background: #e63946;
+  color: white;
+  font-weight: bold;
+  cursor: pointer;
+}
+#password-error { color: #e63946; font-size: 0.9rem; }
+
 /* ── Profile overlay ─────────────────────────────────────── */
 #profile-overlay {
   position: fixed; inset: 0;

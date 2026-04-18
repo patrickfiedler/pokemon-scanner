@@ -1,6 +1,54 @@
 "use strict";
 
-// ── State ────────────────────────────────────────────────────
+// ── Auth ──────────────────────────────────────────────────────
+const TOKEN_KEY = "authToken";
+
+function getToken() { return localStorage.getItem(TOKEN_KEY); }
+
+// Wrapper for all API calls: injects X-Token, handles 401 by showing password screen
+async function apiFetch(url, init = {}) {
+  const headers = { ...(init.headers || {}), "X-Token": getToken() || "" };
+  const res = await fetch(url, { ...init, headers });
+  if (res.status === 401) {
+    showPasswordOverlay();
+    throw new Error("Unauthorized");
+  }
+  return res;
+}
+
+const passwordOverlay = document.getElementById("password-overlay");
+const passwordInput   = document.getElementById("password-input");
+const passwordBtn     = document.getElementById("password-btn");
+const passwordError   = document.getElementById("password-error");
+
+function showPasswordOverlay() {
+  passwordOverlay.hidden = false;
+  passwordInput.value = "";
+  passwordError.hidden = true;
+  passwordInput.focus();
+}
+
+async function handleLogin() {
+  const res = await fetch("/api/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: passwordInput.value }),
+  });
+  if (res.ok) {
+    const { token } = await res.json();
+    localStorage.setItem(TOKEN_KEY, token);
+    passwordOverlay.hidden = true;
+    loadProfiles();
+  } else {
+    passwordError.hidden = false;
+    passwordInput.select();
+  }
+}
+
+passwordBtn.addEventListener("click", handleLogin);
+passwordInput.addEventListener("keydown", e => { if (e.key === "Enter") handleLogin(); });
+
+// ── State ─────────────────────────────────────────────────────
 let profiles = [];
 let activeProfile = null;  // {id, name, color}
 let currentCard = null;    // card shown in scan result
@@ -68,7 +116,7 @@ const detailMeta    = document.getElementById("detail-meta");
 
 // ── Profiles ─────────────────────────────────────────────────
 async function loadProfiles() {
-  const res = await fetch("/profiles");
+  const res = await apiFetch("/profiles");
   profiles = await res.json();
 
   // Build profile picker buttons
@@ -107,11 +155,18 @@ profileSwitch.addEventListener("click", () => {
   app.hidden = true;
 });
 
+// ── Startup ───────────────────────────────────────────────────
+// Show password screen if no token stored; otherwise load profiles.
+if (getToken()) {
+  loadProfiles();
+} else {
+  showPasswordOverlay();
+}
+
 // ── Tabs ─────────────────────────────────────────────────────
 // Start on collection tab; camera only starts when scanner tab is opened.
 tabScanner.hidden    = true;
 tabCollection.hidden = false;
-loadCollection();
 
 tabBtns.forEach(btn => {
   btn.addEventListener("click", () => {
@@ -167,7 +222,7 @@ captureBtn.addEventListener("click", async () => {
     try {
       const form = new FormData();
       form.append("file", blob, "card.jpg");
-      const res = await fetch("/scan", { method: "POST", body: form });
+      const res = await apiFetch("/scan", { method: "POST", body: form });
       const data = await res.json();
       handleScanResult(data);
     } catch (err) {
@@ -213,7 +268,7 @@ async function showCard(card) {
   cardOwned.textContent = "";
   if (activeProfile) {
     try {
-      const res = await fetch(`/collection/${activeProfile.id}/${card.id}`);
+      const res = await apiFetch(`/collection/${activeProfile.id}/${card.id}`);
       const { quantity } = await res.json();
       cardOwned.textContent = quantity > 0
         ? `Du hast diese Karte: ${quantity}×`
@@ -277,7 +332,7 @@ addBtn.addEventListener("click", async () => {
   if (!currentCard || !activeProfile) return;
   addBtn.disabled = true;
   try {
-    const res = await fetch(`/collection/${activeProfile.id}/${currentCard.id}/add`, { method: "POST" });
+    const res = await apiFetch(`/collection/${activeProfile.id}/${currentCard.id}/add`, { method: "POST" });
     const { quantity } = await res.json();
     cardOwned.textContent = `Du hast diese Karte: ${quantity}×`;
     addBtn.textContent = "✓ Hinzugefügt!";
@@ -299,7 +354,7 @@ async function doManualLookup() {
   if (!num) return;
   showLoading();
   try {
-    const res  = await fetch("/lookup?number=" + encodeURIComponent(total ? `${num}/${total}` : num));
+    const res  = await apiFetch("/lookup?number=" + encodeURIComponent(total ? `${num}/${total}` : num));
     const data = await res.json();
     if (!res.ok) { showError(data.detail || "Suche fehlgeschlagen"); return; }
     handleScanResult(data);
@@ -320,7 +375,7 @@ async function loadCollection() {
   if (!activeProfile) return;
   cardGrid.innerHTML = '<div style="padding:1rem;color:#888">Wird geladen…</div>';
   try {
-    const res = await fetch(`/collection/${activeProfile.id}`);
+    const res = await apiFetch(`/collection/${activeProfile.id}`);
     allCards = await res.json();
     collectionCount.textContent = `${activeProfile.name} · ${allCards.length} Karten`;
     applyChips();
@@ -422,7 +477,7 @@ detailClose.addEventListener("click", () => { detailOverlay.hidden = true; });
 
 detailPlus.addEventListener("click", async () => {
   if (!detailCard || !activeProfile) return;
-  const res = await fetch(`/collection/${activeProfile.id}/${detailCard.id}/add`, { method: "POST" });
+  const res = await apiFetch(`/collection/${activeProfile.id}/${detailCard.id}/add`, { method: "POST" });
   const { quantity } = await res.json();
   detailCard.quantity = quantity;
   detailQty.textContent = quantity;
@@ -431,7 +486,7 @@ detailPlus.addEventListener("click", async () => {
 
 detailMinus.addEventListener("click", async () => {
   if (!detailCard || !activeProfile) return;
-  const res = await fetch(`/collection/${activeProfile.id}/${detailCard.id}/remove`, { method: "POST" });
+  const res = await apiFetch(`/collection/${activeProfile.id}/${detailCard.id}/remove`, { method: "POST" });
   const { quantity } = await res.json();
   if (quantity === 0) {
     detailOverlay.hidden = true;
@@ -451,7 +506,7 @@ detailYes.addEventListener("click", async () => {
   if (!detailCard || !activeProfile) return;
   // Remove all copies
   for (let i = 0; i < detailCard.quantity; i++) {
-    await fetch(`/collection/${activeProfile.id}/${detailCard.id}/remove`, { method: "POST" });
+    await apiFetch(`/collection/${activeProfile.id}/${detailCard.id}/remove`, { method: "POST" });
   }
   detailOverlay.hidden = true;
   allCards = allCards.filter(c => c.id !== detailCard.id);
