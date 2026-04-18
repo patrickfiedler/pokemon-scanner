@@ -183,6 +183,7 @@ def main() -> None:
     en_set_ids = sorted(lang_set_ids["en"])
     total_sets = len(en_set_ids)
     skipped = 0
+    updated_set_ids: set[str] = set()
 
     # --- Step 2: for each EN set, collect multilingual data ---
     for idx, set_id in enumerate(en_set_ids, 1):
@@ -246,50 +247,67 @@ def main() -> None:
         )
         conn.commit()
         print(f" — {len(rows)} cards")
+        updated_set_ids.add(set_id)
 
     print(f"\nTCGdex import: {total_sets - skipped} sets updated, {skipped} unchanged (skipped).")
 
-    # --- Step 3: Augment missing names from PokeAPI ---
-    print("\nFetching Pokémon species names from PokeAPI for missing translations…")
-    missing_rows = conn.execute(
-        "SELECT DISTINCT name_en FROM cards "
-        "WHERE name_en IS NOT NULL AND (name_de IS NULL OR name_fr IS NULL OR name_it IS NULL)"
-    ).fetchall()
+    # --- Step 3: PokeAPI species name enrichment ---
+    # Only process cards from sets touched in step 2 that still lack a DE name.
+    if not updated_set_ids:
+        print("\nPokeAPI step: nothing to do (no sets were updated).")
+    else:
+        placeholders = ",".join("?" * len(updated_set_ids))
+        missing_names = [
+            row[0] for row in conn.execute(
+                f"SELECT DISTINCT name_en FROM cards "
+                f"WHERE set_id IN ({placeholders}) AND name_en IS NOT NULL "
+                f"AND (name_de IS NULL OR name_fr IS NULL OR name_it IS NULL)",
+                list(updated_set_ids),
+            )
+        ]
 
-    # Build slug → pokeapi names cache (one request per unique species)
-    slug_cache: dict[str, dict] = {}
-    for idx, (name_en,) in enumerate(missing_rows):
-        slug, _ = parse_card_name(name_en)
-        if slug in slug_cache:
-            continue
-        names = fetch_pokeapi_names(slug)
-        slug_cache[slug] = names
-        if names:
-            print(f"  [{idx+1}/{len(missing_rows)}] {name_en} → de:{names.get('de','?')}")
-        time.sleep(0.07)  # be polite to PokeAPI
+        # Deduplicate slugs — one API call per unique Pokémon species
+        slug_order: list[str] = []
+        slug_cache: dict[str, dict] = {}
+        for name_en in missing_names:
+            slug, _ = parse_card_name(name_en)
+            if slug not in slug_cache:
+                slug_cache[slug] = {}
+                slug_order.append(slug)
 
-    # Update cards — COALESCE keeps existing TCGdex translations intact
-    updates = []
-    for (name_en,) in missing_rows:
-        slug, suffix = parse_card_name(name_en)
-        names = slug_cache.get(slug)
-        if not names:
-            continue
-        def localized(lang: str) -> str | None:
-            n = names.get(lang)
-            return (n + suffix) if n else None
-        updates.append((localized("de"), localized("fr"), localized("it"), name_en))
+        print(f"\nPokeAPI: {len(missing_names)} card names → {len(slug_order)} unique species to look up…")
+        found = 0
+        for idx, slug in enumerate(slug_order, 1):
+            names = fetch_pokeapi_names(slug)
+            slug_cache[slug] = names
+            de = names.get("de", "—") if names else "(not a Pokémon)"
+            print(f"  [{idx}/{len(slug_order)}] {slug} → {de}")
+            if names:
+                found += 1
+            time.sleep(0.07)  # be polite to PokeAPI
 
-    conn.executemany(
-        """UPDATE cards
-           SET name_de = COALESCE(name_de, ?),
-               name_fr = COALESCE(name_fr, ?),
-               name_it = COALESCE(name_it, ?)
-           WHERE name_en = ?""",
-        updates,
-    )
-    conn.commit()
-    print(f"  Updated {len(updates)} card name groups with PokeAPI translations.")
+        # Update cards — COALESCE keeps existing TCGdex translations intact
+        updates = []
+        for name_en in missing_names:
+            slug, suffix = parse_card_name(name_en)
+            names = slug_cache.get(slug)
+            if not names:
+                continue
+            def localized(lang: str, _names: dict = names, _suffix: str = suffix) -> str | None:
+                n = _names.get(lang)
+                return (n + _suffix) if n else None
+            updates.append((localized("de"), localized("fr"), localized("it"), name_en))
+
+        conn.executemany(
+            """UPDATE cards
+               SET name_de = COALESCE(name_de, ?),
+                   name_fr = COALESCE(name_fr, ?),
+                   name_it = COALESCE(name_it, ?)
+               WHERE name_en = ?""",
+            updates,
+        )
+        conn.commit()
+        print(f"  {found}/{len(slug_order)} species found, {len(updates)} card name groups updated.")
 
     # --- Summary ---
     n_sets  = conn.execute("SELECT COUNT(*) FROM sets").fetchone()[0]
