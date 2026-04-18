@@ -120,15 +120,24 @@ tabBtns.forEach(btn => {
 
 // ── Camera ───────────────────────────────────────────────────
 async function startCamera() {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment", width: { ideal: 1280 } },
-      audio: false,
-    });
-    video.srcObject = stream;
-  } catch (err) {
-    showError("Kamera nicht verfügbar: " + err.message);
-    captureBtn.disabled = true;
+  // Try progressively less restrictive constraints for device compatibility.
+  const attempts = [
+    { video: { facingMode: "environment", width: { ideal: 1280 } }, audio: false },
+    { video: { width: { ideal: 1280 } }, audio: false },
+    { video: true, audio: false },
+  ];
+  for (const constraints of attempts) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject = stream;
+      await video.play();
+      return;
+    } catch (err) {
+      if (constraints === attempts.at(-1)) {
+        showError("Kamera nicht verfügbar: " + err.message);
+        captureBtn.disabled = true;
+      }
+    }
   }
 }
 
