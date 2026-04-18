@@ -209,37 +209,47 @@ def save_debug(img: np.ndarray, roi: np.ndarray, ocr_raw: str, result: dict) -> 
     )
 
 
-def preprocess_for_ocr(img: np.ndarray) -> np.ndarray:
-    """Crop the card number strip, enlarge, convert to high-contrast grayscale.
+def _ocr_strip(roi_bgr: np.ndarray) -> str:
+    """Preprocess a BGR image strip and return Tesseract output."""
+    roi = cv2.resize(roi_bgr, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    # Gaussian blur suppresses high-frequency holographic foil noise
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    thresh = cv2.adaptiveThreshold(
+        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 51, 12
+    )
+    config = (
+        "--oem 3 --psm 11 "
+        "-c tessedit_char_whitelist=0123456789/ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    )
+    return pytesseract.image_to_string(thresh, config=config)
 
-    The user aligns the card's bottom corner with the guide zone (bottom 18%
-    of the viewfinder). So the card number sits at roughly y=70-87% of the
-    cropped image. Scan the full width to handle both left- and right-side
-    number placement (varies by card set).
-    """
+
+def preprocess_for_ocr(img: np.ndarray) -> np.ndarray:
+    """Return the primary ROI as a preprocessed image (for debug display)."""
     h, w = img.shape[:2]
-    roi = img[int(h * 0.70):int(h * 0.87), 0:w]
+    roi = img[int(h * 0.80):int(h * 0.95), 0:w]
     roi = cv2.resize(roi, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    thresh = cv2.adaptiveThreshold(
-        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 10
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    return cv2.adaptiveThreshold(
+        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 51, 12
     )
-    return thresh
-
-
-def preprocess_to_jpeg(img: np.ndarray) -> str:
-    """Return preprocessed ROI as base64 JPEG for debug display."""
-    processed = preprocess_for_ocr(img)
-    _, buf = cv2.imencode(".jpg", processed)
-    return base64.b64encode(buf).decode()
 
 
 def ocr_image(img: np.ndarray) -> str:
-    processed = preprocess_for_ocr(img)
-    # PSM 11 = sparse text, finds text anywhere in the image (needed for full-width strip)
-    # Include uppercase letters so we can also capture set codes (e.g. M23H before 008/015)
-    config = "--oem 3 --psm 11 -c tessedit_char_whitelist=0123456789/ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    return pytesseract.image_to_string(processed, config=config)
+    """OCR the card number from three overlapping bottom strips and combine."""
+    h, w = img.shape[:2]
+    # Three strips covering slightly different vertical positions to handle
+    # cards held at different heights in the viewfinder.
+    strips = [(0.78, 0.93), (0.82, 0.96), (0.74, 0.90)]
+    parts = []
+    for y0, y1 in strips:
+        roi = img[int(h * y0):int(h * y1), 0:w]
+        if roi.size == 0:
+            continue
+        parts.append(_ocr_strip(roi))
+    return "\n".join(parts)
 
 
 # Set code + number: e.g. "M23H 008/015" — code is 2-5 chars (excludes long illustrator names)
