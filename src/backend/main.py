@@ -39,10 +39,7 @@ TCGDEX_BASE = "https://api.tcgdex.net/v2"
 
 # Vision LLM (Mistral Small 3.2 on OVHcloud AI Endpoints) — optional fallback
 OVH_API_KEY = os.getenv("OVH_API_KEY", "")
-_OVH_LLM_URL = (
-    "https://mistral-small-3-2-24b-instruct-2506.endpoints.kepler.ai.cloud.ovh.net"
-    "/v1/chat/completions"
-)
+_OVH_LLM_URL = "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions"
 
 DEBUG_DIR.mkdir(parents=True, exist_ok=True)
 IMAGE_DIR.mkdir(parents=True, exist_ok=True)
