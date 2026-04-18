@@ -106,14 +106,17 @@ def save_debug(img: np.ndarray, roi: np.ndarray, ocr_raw: str, result: dict) -> 
 
 
 def preprocess_for_ocr(img: np.ndarray) -> np.ndarray:
-    """Crop bottom-right, enlarge, convert to high-contrast grayscale."""
+    """Crop the card number strip, enlarge, convert to high-contrast grayscale.
+
+    The user aligns the card's bottom corner with the guide zone (bottom 18%
+    of the viewfinder). So the card number sits at roughly y=70-87% of the
+    cropped image. Scan the full width to handle both left- and right-side
+    number placement (varies by card set).
+    """
     h, w = img.shape[:2]
-    # Bottom-right corner: rightmost 45%, bottom 12%
-    roi = img[int(h * 0.88):h, int(w * 0.55):w]
-    # Upscale for better OCR
+    roi = img[int(h * 0.70):int(h * 0.87), 0:w]
     roi = cv2.resize(roi, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    # Adaptive threshold handles variable lighting / glare
     thresh = cv2.adaptiveThreshold(
         gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 10
     )
@@ -129,7 +132,8 @@ def preprocess_to_jpeg(img: np.ndarray) -> str:
 
 def ocr_image(img: np.ndarray) -> str:
     processed = preprocess_for_ocr(img)
-    config = "--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789/ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    # PSM 11 = sparse text, finds text anywhere in the image (needed for full-width strip)
+    config = "--oem 3 --psm 11 -c tessedit_char_whitelist=0123456789/"
     return pytesseract.image_to_string(processed, config=config)
 
 

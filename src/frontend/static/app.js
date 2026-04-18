@@ -34,9 +34,31 @@ async function startCamera() {
 
 // --- Capture & scan ---
 captureBtn.addEventListener("click", async () => {
-  canvas.width  = video.videoWidth;
-  canvas.height = video.videoHeight;
-  canvas.getContext("2d").drawImage(video, 0, 0);
+  // Crop to the viewfinder's visible area (video uses object-fit: cover)
+  const vf = document.getElementById("viewfinder");
+  const vfAspect = vf.offsetWidth / vf.offsetHeight;
+  const vidW = video.videoWidth;
+  const vidH = video.videoHeight;
+  const vidAspect = vidW / vidH;
+
+  let sx, sy, sw, sh;
+  if (vidAspect > vfAspect) {
+    // Video wider → crop sides (center horizontally)
+    sh = vidH;
+    sw = Math.round(vidH * vfAspect);
+    sx = Math.round((vidW - sw) / 2);
+    sy = 0;
+  } else {
+    // Video taller → crop top/bottom (center vertically)
+    sw = vidW;
+    sh = Math.round(vidW / vfAspect);
+    sx = 0;
+    sy = Math.round((vidH - sh) / 2);
+  }
+
+  canvas.width  = sw;
+  canvas.height = sh;
+  canvas.getContext("2d").drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
 
   canvas.toBlob(async (blob) => {
     showLoading();
