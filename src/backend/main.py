@@ -528,18 +528,26 @@ def _detect_energy_type_by_color(img: np.ndarray) -> str | None:
     crop = img[int(h * 0.25):int(h * 0.75), int(w * 0.15):int(w * 0.85)]
     hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
 
-    # Mask out near-white (card border) and near-black (darkness energy needs special handling)
     s = hsv[:, :, 1]  # saturation
     v = hsv[:, :, 2]  # value/brightness
-    colorful_mask = (s > 60) & (v > 60)  # keep only vivid, non-dark pixels
 
-    # Special case: if almost no colorful pixels → Darkness or Metal (dark/grey)
+    mean_s = float(s.mean())
+    mean_v = float(v.mean())
+
+    # Low saturation → Darkness (dark) or Metal (grey/silver).
+    # Check this BEFORE the colorful-pixel ratio, because artwork details
+    # on these cards can inflate the ratio above the 5% threshold.
+    if mean_s < 50:
+        result = "Darkness Energy" if mean_v < 100 else "Metal Energy"
+        print(f"[Color] low-sat mean_s={mean_s:.1f} mean_v={mean_v:.1f} → {result}")
+        return result
+
+    colorful_mask = (s > 60) & (v > 60)  # vivid, non-dark pixels
     colorful_ratio = colorful_mask.sum() / colorful_mask.size
     if colorful_ratio < 0.05:
-        # Check if mostly dark → Darkness, or grey/metallic → Metal
-        mean_v = v.mean()
-        mean_s = s.mean()
-        return "Darkness Energy" if mean_v < 80 else "Metal Energy"
+        result = "Darkness Energy" if mean_v < 100 else "Metal Energy"
+        print(f"[Color] low-colorful mean_v={mean_v:.1f} → {result}")
+        return result
 
     hues = hsv[:, :, 0][colorful_mask]
     if len(hues) == 0:
