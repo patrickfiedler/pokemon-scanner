@@ -379,62 +379,110 @@ def extract_number_llm(jpg_bytes: bytes) -> dict | None:
     return None
 
 
-def _detect_energy_type_llm(img: np.ndarray) -> str | None:
-    """Ask the LLM what energy type it sees in the full card image.
+_ENERGY_REF_DIR = Path(__file__).parent.parent.parent / "data" / "energy_refs"
 
-    Used when the card name ('Basis-Energie') doesn't reveal the type.
-    Sends the full card so the LLM can use both symbol shape and background color.
+# TCGdex URLs for one representative card per energy type
+_ENERGY_REF_URLS: dict[str, str] = {
+    "fire":      "https://assets.tcgdex.net/en/base/base1/98/high.jpg",
+    "water":     "https://assets.tcgdex.net/en/base/base1/102/high.jpg",
+    "grass":     "https://assets.tcgdex.net/en/base/base1/99/high.jpg",
+    "lightning": "https://assets.tcgdex.net/en/base/base1/100/high.jpg",
+    "fighting":  "https://assets.tcgdex.net/en/base/base1/97/high.jpg",
+    "psychic":   "https://assets.tcgdex.net/en/base/base1/101/high.jpg",
+    "darkness":  "https://assets.tcgdex.net/en/bw/bw1/111/high.jpg",
+    "metal":     "https://assets.tcgdex.net/en/bw/bw1/112/high.jpg",
+    "fairy":     "https://assets.tcgdex.net/en/xy/g1/83/high.jpg",
+}
+
+
+def _ensure_energy_refs() -> None:
+    """Download reference images if not already cached."""
+    import urllib.request
+    _ENERGY_REF_DIR.mkdir(parents=True, exist_ok=True)
+    for name, url in _ENERGY_REF_URLS.items():
+        p = _ENERGY_REF_DIR / f"{name}.jpg"
+        if not p.exists():
+            try:
+                urllib.request.urlretrieve(url, p)
+                print(f"[Energy refs] downloaded {name}")
+            except Exception as exc:
+                print(f"[Energy refs] failed {name}: {exc}")
+
+
+# Load reference images once at startup: {type_name: base64_jpeg}
+def _load_energy_refs() -> dict[str, str]:
+    _ensure_energy_refs()
+    refs = {}
+    for name in _ENERGY_REF_URLS:
+        p = _ENERGY_REF_DIR / f"{name}.jpg"
+        if p.exists():
+            img = cv2.imread(str(p))
+            if img is not None:
+                # Resize to 200px wide — enough to see color/symbol, keeps payload small
+                scale = 200 / img.shape[1]
+                small = cv2.resize(img, (200, max(1, int(img.shape[0] * scale))))
+                _, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                refs[name] = base64.b64encode(buf.tobytes()).decode()
+    return refs
+
+_ENERGY_REFS: dict[str, str] = _load_energy_refs()
+
+
+def _detect_energy_type_llm(img: np.ndarray) -> str | None:
+    """Ask the LLM what energy type it sees using few-shot reference images.
+
+    Sends one reference card per energy type alongside the query card.
+    The LLM matches visually rather than relying on text descriptions alone.
     Returns a canonical energy name or None.
     """
     if not _llm_enabled:
         return None
-    target_w = 600
+    target_w = 300
     scale = target_w / img.shape[1]
     resized = cv2.resize(img, (target_w, max(1, int(img.shape[0] * scale))),
                          interpolation=cv2.INTER_CUBIC)
     _, buf = cv2.imencode(".jpg", resized, [cv2.IMWRITE_JPEG_QUALITY, 85])
-    b64 = base64.b64encode(buf.tobytes()).decode()
+    query_b64 = base64.b64encode(buf.tobytes()).decode()
+
+    # Build content: reference images first, then the query card
+    content: list[dict] = []
+    ref_labels = []
+    for name, b64 in _ENERGY_REFS.items():
+        content.append({"type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
+        ref_labels.append(name)
+
+    ref_list = ", ".join(ref_labels)
+    content.append({"type": "text",
+                    "text": (
+                        f"The images above are reference examples of Pokémon Basic Energy cards "
+                        f"in this order: {ref_list}. "
+                        f"The next image is an unknown energy card."
+                    )})
+    content.append({"type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{query_b64}"}})
+    content.append({"type": "text",
+                    "text": (
+                        "Which reference type does the unknown card most closely match? "
+                        "Reply with ONLY one word from: "
+                        "fire, water, grass, lightning, fighting, psychic, darkness, metal, "
+                        "dragon, fairy, colorless. No other words."
+                    )})
+
     try:
         resp = httpx.post(
             _OVH_LLM_URL,
             headers={"Authorization": f"Bearer {OVH_API_KEY}"},
             json={
                 "model": "Mistral-Small-3.2-24B-Instruct-2506",
-                "messages": [{
-                    "role": "user",
-                    "content": [
-                        {"type": "image_url",
-                         "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-                        {"type": "text",
-                         "text": (
-                             "This is a Pokémon Basic Energy card. "
-                             "Identify the energy type using the symbol shape and background color.\n"
-                             "Types and their key features:\n"
-                             "- fire: ORANGE/RED background, flame symbol\n"
-                             "- water: BLUE background, water drop symbol\n"
-                             "- grass: GREEN background, leaf symbol\n"
-                             "- lightning: YELLOW background, bolt symbol\n"
-                             "- fighting: ORANGE-BROWN/BEIGE background, fist symbol\n"
-                             "- psychic: BRIGHT PINK or HOT PINK background, eye/swirl symbol\n"
-                             "- darkness: VERY DARK BLACK background (nearly completely black), crescent symbol\n"
-                             "- metal: SILVER/STEEL GREY METALLIC background (shiny grey, NOT white), gear symbol\n"
-                             "- dragon: MULTICOLOR background, claw symbol\n"
-                             "- fairy: PASTEL PINK/LIGHT PINK background, star symbol\n"
-                             "- colorless: PLAIN WHITE or CREAM background (very light), simple star\n"
-                             "IMPORTANT: darkness=black (not purple), metal=shiny grey (not white), "
-                             "psychic=bright pink (not dark).\n"
-                             "Reply with ONLY one word from: fire, water, grass, lightning, fighting, "
-                             "psychic, darkness, metal, dragon, fairy, colorless. No other words."
-                         )},
-                    ],
-                }],
+                "messages": [{"role": "user", "content": content}],
                 "max_tokens": 10,
             },
-            timeout=20,
+            timeout=30,
         )
         resp.raise_for_status()
         word = resp.json()["choices"][0]["message"]["content"].strip().lower()
-        print(f"[LLM energy] symbol detected: {word!r}")
+        print(f"[LLM energy] detected: {word!r}")
         for keywords, canonical in _ENERGY_TYPE_MAP:
             if any(kw in word for kw in keywords):
                 return canonical
