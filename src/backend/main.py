@@ -410,10 +410,12 @@ def _detect_energy_type_llm(img: np.ndarray) -> str | None:
                         {"type": "text",
                          "text": (
                              "This is the center of a Pokémon Basic Energy card. "
-                             "Look at the large energy symbol and reply with ONLY one word "
-                             "from this list: fire, water, grass, lightning, fighting, "
-                             "psychic, darkness, metal, dragon, fairy, colorless. "
-                             "No other words."
+                             "Use BOTH the dominant background color AND the energy symbol to identify the type. "
+                             "Color hints: red/orange=fire, blue=water, green=grass, yellow=lightning, "
+                             "orange-brown=fighting, pink/purple=psychic, black=darkness, "
+                             "silver/grey=metal, multicolor=dragon, pink-pastel=fairy, white=colorless. "
+                             "Reply with ONLY one word from: fire, water, grass, lightning, fighting, "
+                             "psychic, darkness, metal, dragon, fairy, colorless. No other words."
                          )},
                     ],
                 }],
