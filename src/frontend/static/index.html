@@ -13,64 +13,118 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header>
-    <h1>🔍 Pokémon Card Scanner</h1>
-  </header>
 
-  <main>
-    <!-- Camera view -->
-    <section id="scanner">
-      <div id="viewfinder">
-        <video id="video" autoplay playsinline muted></video>
-        <div id="guide">
-          ↑ Untere Kartenkante auf den Strich legen
+  <!-- Profile picker overlay (shown before any content) -->
+  <div id="profile-overlay">
+    <div id="profile-picker">
+      <h2>Wer bist du?</h2>
+      <div id="profile-buttons">
+        <!-- Populated by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Main app (hidden until profile selected) -->
+  <div id="app" hidden>
+    <header>
+      <h1>🔍 PokéScan</h1>
+      <button id="profile-switch-btn"></button>
+    </header>
+
+    <div id="tab-scanner">
+      <!-- Left / top: camera -->
+      <section id="scanner-panel">
+        <div id="viewfinder">
+          <video id="video" autoplay playsinline muted></video>
+          <div id="guide">↑ Untere Kartenkante auf den Strich legen</div>
+        </div>
+        <button id="capture-btn">📸 Karte scannen</button>
+        <canvas id="canvas" hidden></canvas>
+
+        <div id="manual-entry">
+          <p>oder Nummer manuell eingeben</p>
+          <div id="manual-row">
+            <input id="manual-num" type="text" inputmode="numeric" pattern="\d*"
+                   placeholder="045" autocomplete="off" maxlength="4" />
+            <span id="manual-slash">/</span>
+            <input id="manual-total" type="text" inputmode="numeric" pattern="\d*"
+                   placeholder="198" autocomplete="off" maxlength="4" />
+            <button id="manual-btn">🔍</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right / bottom: result -->
+      <section id="result-panel">
+        <div id="loading" hidden><span class="spinner"></span> Wird gescannt…</div>
+
+        <div id="card-info" hidden>
+          <img id="card-image" alt="Card image" />
+          <div id="card-details">
+            <h2 id="card-name"></h2>
+            <p id="card-set"></p>
+            <p id="card-number"></p>
+            <p id="card-owned"></p>
+          </div>
+          <button id="add-to-collection-btn">➕ Zur Sammlung</button>
+          <button id="scan-again-btn">🔄 Weiter scannen</button>
+        </div>
+
+        <div id="multi-match" hidden>
+          <p>Mehrere Karten gefunden – aus welchem Set?</p>
+          <ul id="match-list"></ul>
+          <button id="scan-again-btn-2">🔄 Weiter scannen</button>
+        </div>
+
+        <div id="error-msg" hidden></div>
+        <button id="scan-again-btn-3" hidden>🔄 Weiter scannen</button>
+
+        <details id="debug" hidden>
+          <summary>Debug info</summary>
+          <p>OCR raw: <code id="debug-ocr"></code></p>
+          <img id="debug-image" alt="Preprocessed ROI" style="max-width:100%;margin-top:0.5rem;border-radius:6px"/>
+        </details>
+      </section>
+    </div>
+
+    <!-- Collection tab -->
+    <div id="tab-collection" hidden>
+      <div id="collection-header">
+        <span id="collection-count">0 Karten</span>
+      </div>
+      <div id="card-grid"></div>
+    </div>
+
+    <!-- Bottom tab bar -->
+    <nav id="tab-bar">
+      <button class="tab active" data-tab="scanner">📸 Scanner</button>
+      <button class="tab" data-tab="collection">📚 Sammlung</button>
+    </nav>
+  </div>
+
+  <!-- Card detail overlay (for collection view) -->
+  <div id="detail-overlay" hidden>
+    <div id="detail-content">
+      <button id="detail-close">✕</button>
+      <img id="detail-image" alt="" />
+      <h2 id="detail-name"></h2>
+      <p id="detail-set"></p>
+      <p id="detail-number"></p>
+      <div id="detail-qty-row">
+        <button id="detail-minus">−</button>
+        <span id="detail-qty">1</span>
+        <button id="detail-plus">＋</button>
+      </div>
+      <div id="detail-remove-row">
+        <button id="detail-remove-btn">🗑 Entfernen</button>
+        <div id="detail-confirm" hidden>
+          Wirklich entfernen?
+          <button id="detail-confirm-yes">Ja</button>
+          <button id="detail-confirm-no">Nein</button>
         </div>
       </div>
-      <button id="capture-btn">📸 Karte scannen</button>
-      <canvas id="canvas" hidden></canvas>
-
-      <div id="manual-entry">
-        <p>oder Nummer manuell eingeben</p>
-        <div id="manual-row">
-          <input id="manual-num" type="text" inputmode="numeric" pattern="\d*"
-                 placeholder="045" autocomplete="off" maxlength="4" />
-          <span id="manual-slash">/</span>
-          <input id="manual-total" type="text" inputmode="numeric" pattern="\d*"
-                 placeholder="198" autocomplete="off" maxlength="4" />
-          <button id="manual-btn">🔍</button>
-        </div>
-      </div>
-    </section>
-
-    <!-- Result -->
-    <section id="result" hidden>
-      <div id="loading" hidden>
-        <span class="spinner"></span> Wird gescannt…
-      </div>
-      <div id="card-info" hidden>
-        <img id="card-image" alt="Card image" />
-        <div id="card-details">
-          <h2 id="card-name"></h2>
-          <p id="card-set"></p>
-          <p id="card-number"></p>
-          <p id="card-hp"></p>
-          <p id="card-types"></p>
-          <p id="card-rarity"></p>
-        </div>
-      </div>
-      <div id="multi-match" hidden>
-        <p>Mehrere Karten gefunden – aus welchem Set ist deine?</p>
-        <ul id="match-list"></ul>
-      </div>
-      <div id="error-msg" hidden></div>
-      <details id="debug" hidden>
-        <summary>Debug info</summary>
-        <p>OCR raw: <code id="debug-ocr"></code></p>
-        <img id="debug-image" alt="Preprocessed ROI" style="max-width:100%;margin-top:0.5rem;border-radius:6px"/>
-      </details>
-      <button id="scan-again-btn">🔄 Weitere Karte scannen</button>
-    </section>
-  </main>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

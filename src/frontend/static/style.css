@@ -4,25 +4,125 @@ body {
   font-family: system-ui, sans-serif;
   background: #1a1a2e;
   color: #eee;
-  min-height: 100vh;
+  height: 100dvh;
+  overflow: hidden; /* app handles its own scroll */
+}
+
+/* ── Profile overlay ─────────────────────────────────────── */
+#profile-overlay {
+  position: fixed; inset: 0;
+  background: #1a1a2e;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+}
+#profile-picker {
+  text-align: center;
+  padding: 2rem;
+}
+#profile-picker h2 {
+  font-size: 1.8rem;
+  margin-bottom: 2rem;
+}
+#profile-buttons {
+  display: flex;
+  gap: 1.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.profile-btn {
+  width: 160px; height: 160px;
+  border-radius: 20px;
+  border: none;
+  font-size: 1.2rem;
+  font-weight: bold;
+  cursor: pointer;
+  color: white;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 0.5rem;
+  margin: 0;
+}
+.profile-btn .profile-avatar { font-size: 3rem; }
+
+/* ── App shell ───────────────────────────────────────────── */
+#app {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  height: 100dvh;
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
 header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: #0f1b35;
+  flex-shrink: 0;
+}
+header h1 { font-size: 1.2rem; }
+
+#profile-switch-btn {
+  width: auto; margin: 0; padding: 0.4rem 0.9rem;
+  font-size: 0.9rem; border-radius: 20px;
+  background: #333a5c;
+}
+
+/* ── Tab bar (bottom) ────────────────────────────────────── */
+#tab-bar {
+  display: flex;
+  background: #0f1b35;
+  flex-shrink: 0;
+  order: 999; /* always last */
+}
+.tab {
+  flex: 1; margin: 0; padding: 0.8rem;
+  border-radius: 0; border-top: 3px solid transparent;
+  background: transparent; color: #888;
+  font-size: 0.95rem;
+}
+.tab.active {
+  color: #eee;
+  border-top-color: #e63946;
+}
+
+/* ── Scanner tab ─────────────────────────────────────────── */
+#tab-scanner {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  gap: 0;
+}
+
+#scanner-panel {
   padding: 1rem;
-  text-align: center;
-  font-size: 1.2rem;
+  flex-shrink: 0;
 }
 
-main {
-  width: 100%;
-  max-width: 480px;
-  padding: 0 1rem 2rem;
+#result-panel {
+  padding: 1rem;
+  flex: 1;
 }
 
-/* --- Viewfinder --- */
+/* Tablet: side by side */
+@media (min-width: 768px) {
+  #tab-scanner {
+    flex-direction: row;
+    overflow: hidden;
+  }
+  #scanner-panel {
+    flex: 0 0 420px;
+    overflow-y: auto;
+    border-right: 1px solid #ffffff18;
+  }
+  #result-panel {
+    overflow-y: auto;
+  }
+}
+
+/* ── Viewfinder ──────────────────────────────────────────── */
 #viewfinder {
   position: relative;
   width: 100%;
@@ -30,140 +130,229 @@ main {
   overflow: hidden;
   background: #000;
   aspect-ratio: 4/3;
-  max-height: 52vh;
+}
+
+@media (min-width: 768px) {
+  #viewfinder { max-height: 60vh; }
 }
 
 #video {
-  width: 100%;
-  height: 100%;
+  width: 100%; height: 100%;
   object-fit: cover;
 }
 
 #guide {
   position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  bottom: 0; left: 0; right: 0;
   height: 18%;
   border-top: 2px dashed rgba(255,220,0,0.8);
   background: rgba(255,220,0,0.08);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: flex; align-items: center; justify-content: center;
   font-size: 0.8rem;
   color: rgba(255,220,0,0.9);
 }
 
-/* --- Buttons --- */
+/* ── Buttons (generic) ───────────────────────────────────── */
 button {
-  display: block;
-  width: 100%;
-  margin-top: 1rem;
-  padding: 0.9rem;
-  font-size: 1.1rem;
-  font-weight: bold;
-  border: none;
-  border-radius: 10px;
+  display: block; width: 100%;
+  margin-top: 0.75rem; padding: 0.85rem;
+  font-size: 1rem; font-weight: bold;
+  border: none; border-radius: 10px;
   cursor: pointer;
-  background: #e3350d;
-  color: white;
+  background: #e3350d; color: white;
 }
 button:active { opacity: 0.8; }
 
-/* --- Result card --- */
+#add-to-collection-btn {
+  background: #2a9d5c;
+  font-size: 1.1rem;
+  padding: 1rem;
+}
+
+/* ── Card info (scan result) ─────────────────────────────── */
 #card-info {
-  display: flex;
-  gap: 1rem;
   background: #16213e;
   border-radius: 12px;
   padding: 1rem;
-  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.card-info-top {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
 }
 
 #card-image {
-  width: 120px;
-  border-radius: 8px;
-  flex-shrink: 0;
+  width: 100px; border-radius: 8px; flex-shrink: 0;
 }
 
-#card-details h2 { font-size: 1.1rem; margin-bottom: 0.4rem; }
-#card-details p  { font-size: 0.85rem; color: #aaa; margin-top: 0.2rem; }
+@media (min-width: 768px) {
+  #card-image { width: 140px; }
+}
 
-/* --- Multi-match list --- */
-#multi-match { margin-top: 1rem; }
+#card-details h2 { font-size: 1.2rem; margin-bottom: 0.4rem; }
+#card-details p  { font-size: 0.9rem; color: #aaa; margin-top: 0.25rem; }
+#card-owned      { font-size: 1rem !important; color: #7ed9a8 !important; font-weight: bold; }
+
+/* ── Multi-match ─────────────────────────────────────────── */
+#multi-match { margin-top: 0.5rem; }
 #match-list  { list-style: none; padding: 0; margin-top: 0.5rem; }
 #match-list li {
   background: #16213e;
-  padding: 0.7rem 1rem;
+  padding: 0.75rem 1rem;
   border-radius: 8px;
   margin-bottom: 0.5rem;
   cursor: pointer;
+  display: flex; align-items: center; gap: 0.75rem;
 }
 #match-list li:hover { background: #0f3460; }
 
-/* --- Manual entry --- */
+#error-msg {
+  margin-top: 1rem; padding: 1rem;
+  background: #3d0000; border-radius: 8px; color: #ff8888;
+}
+
+/* ── Manual entry ────────────────────────────────────────── */
 #manual-entry {
   margin-top: 0.75rem;
   text-align: center;
-  font-size: 0.85rem;
-  color: #aaa;
+  font-size: 0.85rem; color: #aaa;
 }
 #manual-row {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 0.4rem;
-}
-#manual-input {
-  flex: 1;
-  padding: 0.7rem;
-  font-size: 1rem;
-  border-radius: 8px;
-  border: none;
-  background: #16213e;
-  color: #eee;
-  text-align: center;
+  display: flex; gap: 0.5rem; margin-top: 0.4rem;
 }
 #manual-num, #manual-total {
-  width: 5rem;
-  padding: 0.7rem 0.4rem;
-  font-size: 1rem;
-  border-radius: 8px;
-  border: none;
-  background: #16213e;
-  color: #eee;
-  text-align: center;
+  width: 5rem; padding: 0.7rem 0.4rem;
+  font-size: 1rem; border-radius: 8px; border: none;
+  background: #16213e; color: #eee; text-align: center;
 }
 #manual-slash {
-  font-size: 1.4rem;
-  line-height: 1;
-  align-self: center;
-  color: #aaa;
+  font-size: 1.4rem; align-self: center; color: #aaa;
 }
 #manual-btn {
-  width: auto;
-  margin-top: 0;
-  padding: 0.7rem 1rem;
-  font-size: 1.1rem;
-}
-#error-msg {
-  margin-top: 1rem;
-  padding: 1rem;
-  background: #3d0000;
-  border-radius: 8px;
-  color: #ff8888;
+  width: auto; margin-top: 0; padding: 0.7rem 1rem;
 }
 
-/* --- Spinner --- */
+/* ── Spinner ─────────────────────────────────────────────── */
 .spinner {
-  display: inline-block;
-  width: 1.2rem; height: 1.2rem;
-  border: 3px solid #fff3;
-  border-top-color: #fff;
+  display: inline-block; width: 1.2rem; height: 1.2rem;
+  border: 3px solid #fff3; border-top-color: #fff;
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
-  vertical-align: middle;
-  margin-right: 0.5rem;
+  vertical-align: middle; margin-right: 0.5rem;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
-
 #loading { margin-top: 1rem; text-align: center; }
+
+/* ── Collection tab ──────────────────────────────────────── */
+#tab-collection {
+  flex: 1; display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+#collection-header {
+  padding: 0.75rem 1rem;
+  font-weight: bold; font-size: 1rem;
+  background: #16213e; flex-shrink: 0;
+}
+
+#card-grid {
+  flex: 1; overflow-y: auto;
+  padding: 0.75rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 0.6rem;
+  align-content: start;
+}
+
+@media (min-width: 768px) {
+  #card-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 1rem;
+    padding: 1rem;
+  }
+}
+
+.grid-card {
+  position: relative;
+  background: #16213e;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  aspect-ratio: 2/3;
+  display: flex; align-items: center; justify-content: center;
+}
+.grid-card img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.grid-card:hover { outline: 2px solid #e63946; }
+
+.qty-badge {
+  position: absolute; top: 4px; right: 4px;
+  background: #e63946;
+  color: white; font-size: 0.7rem; font-weight: bold;
+  border-radius: 10px; padding: 1px 6px;
+  min-width: 20px; text-align: center;
+}
+
+.grid-card-name {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  background: rgba(0,0,0,0.7);
+  font-size: 0.65rem; padding: 3px 5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ── Card detail overlay ─────────────────────────────────── */
+#detail-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.85);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 50;
+  padding: 1rem;
+}
+#detail-content {
+  background: #16213e;
+  border-radius: 16px;
+  padding: 1.5rem;
+  max-width: 420px; width: 100%;
+  position: relative;
+  max-height: 90dvh; overflow-y: auto;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 0.75rem;
+}
+#detail-close {
+  position: absolute; top: 0.75rem; right: 0.75rem;
+  width: auto; margin: 0; padding: 0.3rem 0.7rem;
+  background: #333a5c; font-size: 1rem;
+}
+#detail-image {
+  width: 180px; border-radius: 10px;
+}
+#detail-content h2 { font-size: 1.2rem; text-align: center; }
+#detail-content p   { font-size: 0.9rem; color: #aaa; text-align: center; }
+
+#detail-qty-row {
+  display: flex; align-items: center; gap: 1rem;
+  margin-top: 0.5rem;
+}
+#detail-qty-row button {
+  width: 48px; height: 48px; margin: 0; padding: 0;
+  font-size: 1.5rem; border-radius: 50%;
+  background: #333a5c;
+}
+#detail-qty { font-size: 1.5rem; font-weight: bold; min-width: 2rem; text-align: center; }
+
+#detail-remove-row { width: 100%; }
+#detail-remove-btn  { background: #7a1c1c; }
+#detail-confirm     { margin-top: 0.5rem; text-align: center; font-size: 0.9rem; }
+#detail-confirm button { display: inline-block; width: auto; margin: 0.4rem 0.3rem 0; padding: 0.5rem 1.2rem; }
+#detail-confirm-yes { background: #e63946; }
+#detail-confirm-no  { background: #333a5c; }
+
+/* ── Debug ───────────────────────────────────────────────── */
+#debug { margin-top: 1rem; font-size: 0.8rem; color: #888; }

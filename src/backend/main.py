@@ -37,11 +37,34 @@ STATIC_DIR = Path(__file__).parent.parent / "frontend" / "static"
 DEBUG_DIR.mkdir(parents=True, exist_ok=True)
 IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 
+
+def init_collection_db() -> None:
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS collection (
+            user_id   TEXT NOT NULL,
+            card_id   TEXT NOT NULL,
+            quantity  INTEGER NOT NULL DEFAULT 1,
+            added_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (user_id, card_id)
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+init_collection_db()
+
 # ---------------------------------------------------------------------------
 # Auth — middleware covers ALL requests including static files
 # ---------------------------------------------------------------------------
 
 PASSPHRASE = os.environ.get("SCANNER_PASSWORD", "")
+PROFILE_NAMES  = [
+    os.environ.get("PROFILE_1_NAME", "Ash"),
+    os.environ.get("PROFILE_2_NAME", "Misty"),
+]
+PROFILE_COLORS = ["#e63946", "#4895ef"]  # red, blue — fixed
 _REALM = 'Basic realm="Pokemon Scanner"'
 _CHALLENGE = Response(
     content="Unauthorized", status_code=401,
@@ -326,6 +349,89 @@ def list_sets(_=Depends(require_auth)):
     finally:
         conn.close()
     return [dict(r) for r in rows]
+
+
+@app.get("/profiles")
+def get_profiles(_=Depends(require_auth)):
+    return [{"id": str(i), "name": n, "color": c}
+            for i, (n, c) in enumerate(zip(PROFILE_NAMES, PROFILE_COLORS))]
+
+
+@app.get("/collection/{user_id}")
+def get_collection(user_id: str, _=Depends(require_auth)):
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            """SELECT c.*, col.quantity FROM collection col
+               JOIN cards c ON col.card_id = c.id
+               WHERE col.user_id = ?
+               ORDER BY col.added_at DESC""",
+            (user_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return enrich_with_set_name([dict(r) for r in rows])
+
+
+@app.get("/collection/{user_id}/{card_id}")
+def get_collection_item(user_id: str, card_id: str, _=Depends(require_auth)):
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT quantity FROM collection WHERE user_id=? AND card_id=?",
+            (user_id, card_id),
+        ).fetchone()
+    finally:
+        conn.close()
+    return {"quantity": row["quantity"] if row else 0}
+
+
+@app.post("/collection/{user_id}/{card_id}/add")
+def add_to_collection(user_id: str, card_id: str, _=Depends(require_auth)):
+    conn = get_db()
+    try:
+        conn.execute(
+            """INSERT INTO collection (user_id, card_id, quantity)
+               VALUES (?, ?, 1)
+               ON CONFLICT(user_id, card_id) DO UPDATE SET quantity = quantity + 1""",
+            (user_id, card_id),
+        )
+        conn.commit()
+        qty = conn.execute(
+            "SELECT quantity FROM collection WHERE user_id=? AND card_id=?",
+            (user_id, card_id),
+        ).fetchone()["quantity"]
+    finally:
+        conn.close()
+    return {"quantity": qty}
+
+
+@app.post("/collection/{user_id}/{card_id}/remove")
+def remove_from_collection(user_id: str, card_id: str, _=Depends(require_auth)):
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT quantity FROM collection WHERE user_id=? AND card_id=?",
+            (user_id, card_id),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, "Not in collection")
+        if row["quantity"] <= 1:
+            conn.execute(
+                "DELETE FROM collection WHERE user_id=? AND card_id=?",
+                (user_id, card_id),
+            )
+            qty = 0
+        else:
+            conn.execute(
+                "UPDATE collection SET quantity = quantity - 1 WHERE user_id=? AND card_id=?",
+                (user_id, card_id),
+            )
+            qty = row["quantity"] - 1
+        conn.commit()
+    finally:
+        conn.close()
+    return {"quantity": qty}
 
 
 # Serve frontend last so API routes take priority
