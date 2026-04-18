@@ -15,7 +15,8 @@ Strategy:
     to get official species translations (e.g. Kilowattrel → Voltrean)
 
 Usage:
-    python import_cards.py
+    python import_cards.py           # incremental: skip unchanged sets
+    python import_cards.py --force   # full re-import of all sets
 """
 
 import json
@@ -112,11 +113,9 @@ def fetch_pokeapi_names(slug: str) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 def init_db(conn: sqlite3.Connection) -> None:
+    """Create tables if they don't exist; add any missing columns (migrations)."""
     conn.executescript("""
-        DROP TABLE IF EXISTS cards;
-        DROP TABLE IF EXISTS sets;
-
-        CREATE TABLE sets (
+        CREATE TABLE IF NOT EXISTS sets (
             id       TEXT PRIMARY KEY,
             name_en  TEXT,
             name_de  TEXT,
@@ -127,7 +126,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             total    INTEGER
         );
 
-        CREATE TABLE cards (
+        CREATE TABLE IF NOT EXISTS cards (
             id       TEXT PRIMARY KEY,
             set_id   TEXT NOT NULL,
             number   TEXT NOT NULL,
@@ -140,9 +139,19 @@ def init_db(conn: sqlite3.Connection) -> None:
             FOREIGN KEY (set_id) REFERENCES sets(id)
         );
 
-        CREATE INDEX cards_set_number ON cards(set_id, number);
-        CREATE INDEX cards_number     ON cards(number);
+        CREATE INDEX IF NOT EXISTS cards_set_number ON cards(set_id, number);
+        CREATE INDEX IF NOT EXISTS cards_number     ON cards(number);
     """)
+    # Schema migrations: add columns introduced after initial deploy
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(sets)")}
+    for col in ("name_fr",):
+        if col not in existing:
+            conn.execute(f"ALTER TABLE sets ADD COLUMN {col} TEXT")
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(cards)")}
+    for col in ("name_fr",):
+        if col not in existing:
+            conn.execute(f"ALTER TABLE cards ADD COLUMN {col} TEXT")
+    conn.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -150,9 +159,18 @@ def init_db(conn: sqlite3.Connection) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    import sys
+    force = "--force" in sys.argv
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
     init_db(conn)
+
+    # Load existing set totals to enable skip logic
+    known_sets: dict[str, int] = {
+        row["id"]: row["total"]
+        for row in conn.execute("SELECT id, total FROM sets")
+    }
 
     # --- Step 1: collect set IDs available per language ---
     print("Fetching set lists per language…")
@@ -164,23 +182,30 @@ def main() -> None:
 
     en_set_ids = sorted(lang_set_ids["en"])
     total_sets = len(en_set_ids)
+    skipped = 0
 
     # --- Step 2: for each EN set, collect multilingual data ---
     for idx, set_id in enumerate(en_set_ids, 1):
-        print(f"[{idx}/{total_sets}] {set_id}", end="", flush=True)
 
-        # Fetch EN set detail — authoritative for card list and series slug
+        # Fetch EN set list entry to get card count without a full detail call
+        # We'll check total against DB; skip if unchanged (unless --force)
         en_set = fetch_json(f"{BASE_URL}/en/sets/{set_id}")
         if not en_set or "cards" not in en_set:
-            print(" — skipped (no EN data)")
+            print(f"[{idx}/{total_sets}] {set_id} — skipped (no EN data)")
             continue
 
-        series = extract_series(en_set)
         total_cards = (
             en_set.get("cardCount", {}).get("official")
             or en_set.get("cardCount", {}).get("total")
             or 0
         )
+
+        if not force and known_sets.get(set_id) == total_cards:
+            skipped += 1
+            continue  # Set unchanged — skip all API calls for it
+
+        print(f"[{idx}/{total_sets}] {set_id}", end="", flush=True)
+        series = extract_series(en_set)
         set_names = {"en": en_set.get("name"), "de": None, "fr": None, "it": None, "ja": None}
 
         # Localised card names: localId -> {lang: name}
@@ -221,6 +246,8 @@ def main() -> None:
         )
         conn.commit()
         print(f" — {len(rows)} cards")
+
+    print(f"\nTCGdex import: {total_sets - skipped} sets updated, {skipped} unchanged (skipped).")
 
     # --- Step 3: Augment missing names from PokeAPI ---
     print("\nFetching Pokémon species names from PokeAPI for missing translations…")
