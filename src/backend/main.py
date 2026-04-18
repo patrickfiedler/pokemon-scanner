@@ -40,6 +40,7 @@ TCGDEX_BASE = "https://api.tcgdex.net/v2"
 # Vision LLM (Mistral Small 3.2 on OVHcloud AI Endpoints) — optional fallback
 OVH_API_KEY = os.getenv("OVH_API_KEY", "")
 _OVH_LLM_URL = "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions"
+_llm_enabled = bool(OVH_API_KEY)  # disabled at runtime on auth errors
 
 DEBUG_DIR.mkdir(parents=True, exist_ok=True)
 IMAGE_DIR.mkdir(parents=True, exist_ok=True)
@@ -157,15 +158,16 @@ _TOKEN = hmac.new(PASSPHRASE.encode(), b"pokescan-v1", hashlib.sha256).hexdigest
 _PUBLIC = {"/api/login", "/"}
 
 
-def _is_static(path: str) -> bool:
-    return "." in path.rsplit("/", 1)[-1]
+def _is_public(path: str) -> bool:
+    """Static assets (have an extension) and card images are always public."""
+    return path in _PUBLIC or path.startswith("/card-image/") or "." in path.rsplit("/", 1)[-1]
 
 
 class TokenAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if not PASSPHRASE:
             raise RuntimeError("SCANNER_PASSWORD environment variable is not set")
-        if request.url.path in _PUBLIC or _is_static(request.url.path):
+        if _is_public(request.url.path):
             return await call_next(request)
         token = request.headers.get("X-Token", "")
         if secrets.compare_digest(token, _TOKEN):
@@ -316,8 +318,10 @@ def extract_number_llm(jpg_bytes: bytes) -> dict | None:
 
     Returns {"number": "7", "total": "15", "name": "Pikachu"} or None.
     Sends two crops: bottom strip for the number, top strip for the name.
+    Disables itself for the rest of the session on 401 auth errors.
     """
-    if not OVH_API_KEY:
+    global _llm_enabled
+    if not _llm_enabled:
         return None
     bottom_bytes, top_bytes = _prepare_llm_crops(jpg_bytes)
     b64_bottom = base64.b64encode(bottom_bytes).decode()
@@ -364,7 +368,11 @@ def extract_number_llm(jpg_bytes: bytes) -> dict | None:
             return {"number": m.group(1).lstrip("0") or "0",
                     "total": m.group(2), "name": name}
     except Exception as exc:
-        print(f"[LLM] error: {exc}")
+        err = str(exc)
+        print(f"[LLM] error: {err}")
+        if "401" in err:
+            _llm_enabled = False
+            print("[LLM] API key rejected (401) — disabling LLM for this session")
     return None
 
 
@@ -490,7 +498,7 @@ async def scan(file: UploadFile = File(...)):
     llm_used = False
     llm_name = None
     extracted = None
-    if OVH_API_KEY:
+    if _llm_enabled:
         # LLM first: more reliable and returns the Pokémon name for auto-disambiguation
         llm_result = extract_number_llm(data)
         if llm_result:
