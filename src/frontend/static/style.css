@@ -101,7 +101,34 @@ button:active { opacity: 0.8; }
 }
 #match-list li:hover { background: #0f3460; }
 
-/* --- Error --- */
+/* --- Manual entry --- */
+#manual-entry {
+  margin-top: 0.75rem;
+  text-align: center;
+  font-size: 0.85rem;
+  color: #aaa;
+}
+#manual-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+#manual-input {
+  flex: 1;
+  padding: 0.7rem;
+  font-size: 1rem;
+  border-radius: 8px;
+  border: none;
+  background: #16213e;
+  color: #eee;
+  text-align: center;
+}
+#manual-btn {
+  width: auto;
+  margin-top: 0;
+  padding: 0.7rem 1rem;
+  font-size: 1.1rem;
+}
 #error-msg {
   margin-top: 1rem;
   padding: 1rem;

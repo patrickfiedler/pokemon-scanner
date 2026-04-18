@@ -4,6 +4,8 @@ const video      = document.getElementById("video");
 const canvas     = document.getElementById("canvas");
 const captureBtn = document.getElementById("capture-btn");
 const scanAgain  = document.getElementById("scan-again-btn");
+const manualInput = document.getElementById("manual-input");
+const manualBtn   = document.getElementById("manual-btn");
 const scanner    = document.getElementById("scanner");
 const result     = document.getElementById("result");
 const loading    = document.getElementById("loading");
@@ -52,6 +54,7 @@ captureBtn.addEventListener("click", async () => {
 scanAgain.addEventListener("click", () => {
   result.hidden = true;
   debug.hidden = true;
+  manualInput.value = "";
   scanner.hidden = false;
 });
 
@@ -132,6 +135,24 @@ function hideAll() {
   multiMatch.hidden = true;
   errorMsg.hidden = true;
 }
+
+// --- Manual lookup ---
+async function doManualLookup() {
+  const val = manualInput.value.trim();
+  if (!val) return;
+  showLoading();
+  try {
+    const res  = await fetch("/lookup?number=" + encodeURIComponent(val));
+    const data = await res.json();
+    if (!res.ok) { showError(data.detail || "Lookup failed"); return; }
+    handleScanResult(data);
+  } catch (err) {
+    showError("Network error: " + err.message);
+  }
+}
+
+manualBtn.addEventListener("click", doManualLookup);
+manualInput.addEventListener("keydown", (e) => { if (e.key === "Enter") doManualLookup(); });
 
 // --- Start ---
 startCamera();

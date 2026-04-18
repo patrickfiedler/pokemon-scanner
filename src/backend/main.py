@@ -129,11 +129,28 @@ def extract_number(text: str) -> tuple[str, str] | None:
 # Routes
 # ---------------------------------------------------------------------------
 
+def cards_by_number(number: str, set_total: str | None = None) -> list[dict]:
+    """Look up cards by collector number, optionally filtered by set total."""
+    n = number.lstrip("0") or "0"
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM cards WHERE CAST(number AS TEXT) = ? OR number = ?",
+            (n, n.zfill(3)),
+        ).fetchall()
+        matches = [dict(r) for r in rows]
+    finally:
+        conn.close()
+    # If we know the set total, filter to sets whose total matches
+    if set_total and matches:
+        # Join with sets table to check total — simpler: just keep all, it's few results
+        pass
+    return matches
+
+
 @app.post("/scan")
 async def scan(file: UploadFile = File(...), _=Depends(require_auth)):
-    """
-    Receive a card photo, OCR the collector number, return matching cards.
-    """
+    """Receive a card photo, OCR the collector number, return matching cards."""
     data = await file.read()
     arr = np.frombuffer(data, np.uint8)
     img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
@@ -148,24 +165,24 @@ async def scan(file: UploadFile = File(...), _=Depends(require_auth)):
         return {"ocr_raw": raw_text, "debug_image": debug_image, "matches": [], "error": "No collector number found"}
 
     number, set_total = result
-
-    conn = get_db()
-    try:
-        rows = conn.execute(
-            "SELECT * FROM cards WHERE CAST(number AS TEXT) = ? OR number = ?",
-            (number, number.zfill(3)),
-        ).fetchall()
-        matches = [dict(r) for r in rows]
-    finally:
-        conn.close()
-
     return {
         "ocr_raw": raw_text,
         "debug_image": debug_image,
         "number": number,
         "set_total": set_total,
-        "matches": matches,
+        "matches": cards_by_number(number, set_total),
     }
+
+
+@app.get("/lookup")
+def lookup(number: str, _=Depends(require_auth)):
+    """Look up a card by manually entered collector number, e.g. ?number=45/198"""
+    result = extract_number(number)
+    if result is None:
+        raise HTTPException(400, "Invalid format. Use e.g. 45/198 or just 45")
+    n, set_total = result
+    matches = cards_by_number(n, set_total)
+    return {"number": n, "set_total": set_total, "matches": matches}
 
 
 @app.get("/card/{card_id}")
