@@ -344,7 +344,7 @@ DB: """ + str(DB_PATH))
                 found += 1
             print("." if names else "x", end="" if idx % 50 else f" {idx}\n", flush=True)
             if not from_cache:
-                time.sleep(0.07)  # courtesy delay only for live requests
+                time.sleep(0.1)  # courtesy delay for live requests; connection reuse reduces server load
         print(f"\n  {found}/{len(slug_order)} species found.")
 
         # Update cards — COALESCE keeps existing TCGdex translations intact
