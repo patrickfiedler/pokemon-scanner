@@ -11,4 +11,13 @@ if [ ! -f data/cards.db ]; then
   exit 1
 fi
 
+if [ -f .env ]; then
+  export $(grep -v '^#' .env | xargs)
+fi
+
+if [ -z "$SCANNER_PASSWORD" ]; then
+  echo "ERROR: SCANNER_PASSWORD is not set. Copy .env.example to .env and set a passphrase."
+  exit 1
+fi
+
 uvicorn src.backend.main:app --host 0.0.0.0 --port 8000 --reload

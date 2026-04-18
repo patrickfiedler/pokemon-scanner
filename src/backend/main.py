@@ -7,22 +7,46 @@ Endpoints:
   GET  /sets        — list all sets (for disambiguation UI)
 """
 
-import io
 import json
+import os
 import re
+import secrets
 import sqlite3
 from pathlib import Path
 
 import cv2
 import numpy as np
 import pytesseract
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
-from PIL import Image
 
-DB_PATH = Path(__file__).parent.parent / "data" / "cards.db"
-STATIC_DIR = Path(__file__).parent.parent / "src" / "frontend" / "static"
+DB_PATH = Path(__file__).parent.parent.parent / "data" / "cards.db"
+STATIC_DIR = Path(__file__).parent.parent / "frontend" / "static"
+
+# ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
+
+security = HTTPBasic()
+PASSPHRASE = os.environ.get("SCANNER_PASSWORD", "")
+
+
+def require_auth(credentials: HTTPBasicCredentials = Depends(security)):
+    """Accept any username; check password against SCANNER_PASSWORD env var."""
+    if not PASSPHRASE:
+        raise RuntimeError("SCANNER_PASSWORD environment variable is not set")
+    ok = secrets.compare_digest(
+        credentials.password.encode(), PASSPHRASE.encode()
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect passphrase",
+            headers={"WWW-Authenticate": 'Basic realm="Pokemon Scanner"'},
+        )
+
 
 app = FastAPI(title="Pokemon Card Scanner")
 
@@ -81,7 +105,7 @@ def extract_number(text: str) -> tuple[str, str] | None:
 # ---------------------------------------------------------------------------
 
 @app.post("/scan")
-async def scan(file: UploadFile = File(...)):
+async def scan(file: UploadFile = File(...), _=Depends(require_auth)):
     """
     Receive a card photo, OCR the collector number, return matching cards.
     """
@@ -118,7 +142,7 @@ async def scan(file: UploadFile = File(...)):
 
 
 @app.get("/card/{card_id}")
-def get_card(card_id: str):
+def get_card(card_id: str, _=Depends(require_auth)):
     conn = get_db()
     try:
         row = conn.execute("SELECT * FROM cards WHERE id = ?", (card_id,)).fetchone()
@@ -130,7 +154,7 @@ def get_card(card_id: str):
 
 
 @app.get("/sets")
-def list_sets():
+def list_sets(_=Depends(require_auth)):
     conn = get_db()
     try:
         rows = conn.execute("SELECT * FROM sets ORDER BY name").fetchall()
