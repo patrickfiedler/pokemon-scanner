@@ -405,10 +405,34 @@ def _filter_by_name(matches: list[dict], name: str) -> list[dict]:
 
 _ENERGY_KEYWORDS = ("energie", "energy")
 
+# Map any emoji/word the LLM might use → canonical English DB name
+_ENERGY_TYPE_MAP: list[tuple[tuple[str, ...], str]] = [
+    (("fire",    "feuer",  "feu",    "fuoco", "🔥"), "Fire Energy"),
+    (("water",   "wasser", "eau",    "acqua", "💧"), "Water Energy"),
+    (("grass",   "pflanz", "plante", "erba",  "🌿", "🍃"), "Grass Energy"),
+    (("lightning","elektro","blitz", "foudre","fulmine","⚡","⚡️"), "Lightning Energy"),
+    (("fighting","kampf",  "combat", "lotta", "👊"), "Fighting Energy"),
+    (("psychic", "psycho", "psy",    "psico", "🔮", "💜"), "Psychic Energy"),
+    (("darkness","finster","ténèbres","oscurità","🌑"), "Darkness Energy"),
+    (("metal",   "metall", "métal",  "metallo","⚙", "🔩"), "Metal Energy"),
+    (("dragon",  "drache", "dragon", "drago", "🐉"), "Dragon Energy"),
+    (("fairy",   "fee",    "fée",    "fata",  "🌸"), "Fairy Energy"),
+    (("colorless","farblos","incolore","incolore"), "Colorless Energy"),
+]
+
 
 def _is_energy_name(name: str) -> bool:
     n = name.lower()
     return any(kw in n for kw in _ENERGY_KEYWORDS)
+
+
+def _canonical_energy_name(name: str) -> str:
+    """Map LLM-returned energy name (may include emoji) to canonical DB name."""
+    n = name.lower()
+    for keywords, canonical in _ENERGY_TYPE_MAP:
+        if any(kw in n for kw in keywords):
+            return canonical
+    return name  # unknown type — pass through as-is
 
 
 def cards_by_name(name: str) -> list[dict]:
@@ -546,7 +570,8 @@ async def scan(file: UploadFile = File(...)):
 
     # Energy cards: number on card is unreliable — use name lookup instead
     if llm_name and _is_energy_name(llm_name):
-        matches = enrich_with_set_name(cards_by_name(llm_name))
+        canonical = _canonical_energy_name(llm_name)
+        matches = enrich_with_set_name(cards_by_name(canonical))
         number, set_total, set_code = "?", None, None
     else:
         number, set_total, set_code = extracted
