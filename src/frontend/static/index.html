@@ -46,8 +46,15 @@
       <section id="scanner-panel">
         <div id="viewfinder">
           <video id="video" autoplay playsinline muted></video>
-          <div id="guide">↑ Untere Kartenkante auf den Strich legen</div>
+          <div id="card-frame">
+            <div class="frm-corner tl"></div>
+            <div class="frm-corner tr"></div>
+            <div class="frm-corner bl"></div>
+            <div class="frm-corner br"></div>
+            <div id="num-zone"></div>
+          </div>
         </div>
+        <p id="frame-hint">Karte in den Rahmen halten · Nummer unten</p>
         <button id="capture-btn">📸 Karte scannen</button>
         <canvas id="canvas" hidden></canvas>
 
