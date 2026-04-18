@@ -7,6 +7,7 @@ Endpoints:
   GET  /sets        — list all sets (for disambiguation UI)
 """
 
+import base64
 import json
 import os
 import re
@@ -19,37 +20,54 @@ import numpy as np
 import pytesseract
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 
 DB_PATH = Path(__file__).parent.parent.parent / "data" / "cards.db"
 STATIC_DIR = Path(__file__).parent.parent / "frontend" / "static"
 
 # ---------------------------------------------------------------------------
-# Auth
+# Auth — middleware covers ALL requests including static files
 # ---------------------------------------------------------------------------
 
-security = HTTPBasic()
 PASSPHRASE = os.environ.get("SCANNER_PASSWORD", "")
+_REALM = 'Basic realm="Pokemon Scanner"'
+_CHALLENGE = Response(
+    content="Unauthorized", status_code=401,
+    headers={"WWW-Authenticate": _REALM},
+)
+
+
+class BasicAuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if not PASSPHRASE:
+            raise RuntimeError("SCANNER_PASSWORD environment variable is not set")
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Basic "):
+            try:
+                decoded = base64.b64decode(auth[6:]).decode()
+                _, _, password = decoded.partition(":")
+                if secrets.compare_digest(password.encode(), PASSPHRASE.encode()):
+                    return await call_next(request)
+            except Exception:
+                pass
+        return _CHALLENGE
+
+
+# Keep the dependency for API routes too (documents auth in OpenAPI schema)
+security = HTTPBasic()
 
 
 def require_auth(credentials: HTTPBasicCredentials = Depends(security)):
-    """Accept any username; check password against SCANNER_PASSWORD env var."""
-    if not PASSPHRASE:
-        raise RuntimeError("SCANNER_PASSWORD environment variable is not set")
-    ok = secrets.compare_digest(
-        credentials.password.encode(), PASSPHRASE.encode()
-    )
-    if not ok:
-        raise HTTPException(
-            status_code=401,
-            detail="Incorrect passphrase",
-            headers={"WWW-Authenticate": 'Basic realm="Pokemon Scanner"'},
-        )
+    pass  # middleware already verified; this just adds auth to OpenAPI docs
 
 
 app = FastAPI(title="Pokemon Card Scanner")
 
+app.add_middleware(BasicAuthMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
