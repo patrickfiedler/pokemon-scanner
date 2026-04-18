@@ -46,14 +46,12 @@ def create_schema(conn: sqlite3.Connection) -> None:
 
 
 def import_sets(conn: sqlite3.Connection) -> None:
-    sets_dir = DATA_DIR / "sets" / "en"
-    if not sets_dir.exists():
-        print(f"  Sets directory not found: {sets_dir}")
+    sets_file = DATA_DIR / "sets" / "en.json"
+    if not sets_file.exists():
+        print(f"  Sets file not found: {sets_file}")
         return
-    rows = []
-    for f in sorted(sets_dir.glob("*.json")):
-        s = json.loads(f.read_text())
-        rows.append((s["id"], s["name"], s.get("series"), s.get("total")))
+    sets = json.loads(sets_file.read_text())
+    rows = [(s["id"], s["name"], s.get("series"), s.get("total")) for s in sets]
     conn.executemany(
         "INSERT OR REPLACE INTO sets VALUES (?,?,?,?)", rows
     )
@@ -68,13 +66,14 @@ def import_cards(conn: sqlite3.Connection) -> None:
 
     total = 0
     for set_file in sorted(CARDS_DIR.glob("*.json")):
+        set_id = set_file.stem  # filename = set id, e.g. "base1"
         cards = json.loads(set_file.read_text())
         rows = []
         for c in cards:
             images = c.get("images", {})
             rows.append((
                 c["id"],
-                c["set"]["id"],
+                set_id,
                 c["number"],
                 c["name"],
                 c.get("hp"),
