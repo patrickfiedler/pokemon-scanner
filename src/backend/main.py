@@ -379,7 +379,60 @@ def extract_number_llm(jpg_bytes: bytes) -> dict | None:
     return None
 
 
-def _filter_by_name(matches: list[dict], name: str) -> list[dict]:
+def _detect_energy_type_llm(img: np.ndarray) -> str | None:
+    """Ask the LLM what energy symbol it sees in the card center.
+
+    Used when the card name ('Basis-Energie') doesn't reveal the type.
+    Sends a center crop and asks for fire/fist/lightning etc.
+    Returns a canonical energy name or None.
+    """
+    if not _llm_enabled:
+        return None
+    h, w = img.shape[:2]
+    center = img[int(h * 0.20):int(h * 0.80), int(w * 0.10):int(w * 0.90)]
+    target_w = 800
+    scale = target_w / center.shape[1]
+    center = cv2.resize(center, (target_w, max(1, int(center.shape[0] * scale))),
+                        interpolation=cv2.INTER_CUBIC)
+    _, buf = cv2.imencode(".jpg", center, [cv2.IMWRITE_JPEG_QUALITY, 90])
+    b64 = base64.b64encode(buf.tobytes()).decode()
+    try:
+        resp = httpx.post(
+            _OVH_LLM_URL,
+            headers={"Authorization": f"Bearer {OVH_API_KEY}"},
+            json={
+                "model": "Mistral-Small-3.2-24B-Instruct-2506",
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url",
+                         "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                        {"type": "text",
+                         "text": (
+                             "This is the center of a Pokémon Basic Energy card. "
+                             "Look at the large energy symbol and reply with ONLY one word "
+                             "from this list: fire, water, grass, lightning, fighting, "
+                             "psychic, darkness, metal, dragon, fairy, colorless. "
+                             "No other words."
+                         )},
+                    ],
+                }],
+                "max_tokens": 10,
+            },
+            timeout=20,
+        )
+        resp.raise_for_status()
+        word = resp.json()["choices"][0]["message"]["content"].strip().lower()
+        print(f"[LLM energy] symbol detected: {word!r}")
+        for keywords, canonical in _ENERGY_TYPE_MAP:
+            if any(kw in word for kw in keywords):
+                return canonical
+    except Exception as exc:
+        print(f"[LLM energy] error: {exc}")
+    return None
+
+
+
     """Return matches whose name (any language) matches the given name.
 
     Tries exact match first, then prefix, then substring — always returning
@@ -628,9 +681,9 @@ async def scan(file: UploadFile = File(...)):
     # Energy cards identified by name — skip number lookup entirely
     if llm_name and _is_energy_name(llm_name):
         canonical = _canonical_energy_name(llm_name)
-        # If name alone doesn't resolve type (e.g. "Basis-Energie"), use color
+        # If name alone doesn't resolve type (e.g. "Basis-Energie"), ask LLM then color
         if canonical == llm_name:
-            canonical = _detect_energy_type_by_color(img) or llm_name
+            canonical = _detect_energy_type_llm(img) or _detect_energy_type_by_color(img) or llm_name
         matches = enrich_with_set_name(cards_by_name(canonical))
         number, set_total, set_code = "?", None, None
     elif extracted is None:
