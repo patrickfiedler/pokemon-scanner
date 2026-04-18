@@ -133,18 +133,28 @@ def preprocess_to_jpeg(img: np.ndarray) -> str:
 def ocr_image(img: np.ndarray) -> str:
     processed = preprocess_for_ocr(img)
     # PSM 11 = sparse text, finds text anywhere in the image (needed for full-width strip)
-    config = "--oem 3 --psm 11 -c tessedit_char_whitelist=0123456789/"
+    # Include uppercase letters so we can also capture set codes (e.g. M23H before 008/015)
+    config = "--oem 3 --psm 11 -c tessedit_char_whitelist=0123456789/ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     return pytesseract.image_to_string(processed, config=config)
 
 
-NUMBER_RE = re.compile(r"(\d{1,4})\s*/\s*(\d{2,4})")
+# Set code + number: e.g. "M23H 008/015" — code is 2-5 chars (excludes long illustrator names)
+SET_CODE_RE = re.compile(r"\b([A-Z][A-Z0-9]{1,4})\s+(\d{1,4})\s*/\s*(\d{2,4})\b")
+NUMBER_RE   = re.compile(r"(\d{1,4})\s*/\s*(\d{2,4})")
 
 
-def extract_number(text: str) -> tuple[str, str] | None:
-    """Return (card_number, set_total) or None."""
+def extract_number(text: str) -> tuple[str, str, str | None]:
+    """Return (card_number, set_total, set_code_or_None).
+
+    Tries to also capture a printed set code (e.g. 'M23H') before the number.
+    set_code may be None if no code was detected.
+    """
+    m = SET_CODE_RE.search(text)
+    if m:
+        return m.group(2).lstrip("0") or "0", m.group(3), m.group(1)
     m = NUMBER_RE.search(text)
     if m:
-        return m.group(1).lstrip("0") or "0", m.group(2)
+        return m.group(1).lstrip("0") or "0", m.group(2), None
     return None
 
 
@@ -152,29 +162,46 @@ def extract_number(text: str) -> tuple[str, str] | None:
 # Routes
 # ---------------------------------------------------------------------------
 
-def cards_by_number(number: str, set_total: str | None = None) -> list[dict]:
-    """Look up cards by collector number, filtered by set total when available."""
+def cards_by_number(number: str, set_total: str | None = None, set_code: str | None = None) -> list[dict]:
+    """Look up cards by collector number.
+
+    Filtering priority (most → least specific):
+      1. set_code match against set ID (case-insensitive substring)
+      2. set_total match
+      3. number only (no filter)
+    Each level falls back to the next if it returns no results.
+    """
     n = number.lstrip("0") or "0"
+    num_clause = "(CAST(c.number AS TEXT) = ? OR c.number = ?)"
+    num_args   = (n, n.zfill(3))
+
     conn = get_db()
     try:
+        # Try set_code filter first (most specific)
+        if set_code:
+            rows = conn.execute(
+                f"""SELECT c.* FROM cards c JOIN sets s ON c.set_id = s.id
+                    WHERE {num_clause} AND UPPER(s.id) LIKE ?""",
+                (*num_args, f"%{set_code.upper()}%"),
+            ).fetchall()
+            if rows:
+                return [dict(r) for r in rows]
+
+        # Try set_total filter
         if set_total:
             rows = conn.execute(
-                """SELECT c.* FROM cards c
-                   JOIN sets s ON c.set_id = s.id
-                   WHERE (CAST(c.number AS TEXT) = ? OR c.number = ?)
-                     AND s.total = ?""",
-                (n, n.zfill(3), int(set_total)),
+                f"""SELECT c.* FROM cards c JOIN sets s ON c.set_id = s.id
+                    WHERE {num_clause} AND s.total = ?""",
+                (*num_args, int(set_total)),
             ).fetchall()
-            if not rows:  # Fall back if total matched nothing
-                rows = conn.execute(
-                    "SELECT * FROM cards WHERE CAST(number AS TEXT) = ? OR number = ?",
-                    (n, n.zfill(3)),
-                ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM cards WHERE CAST(number AS TEXT) = ? OR number = ?",
-                (n, n.zfill(3)),
-            ).fetchall()
+            if rows:
+                return [dict(r) for r in rows]
+
+        # Fall back to number only
+        rows = conn.execute(
+            f"SELECT * FROM cards WHERE {num_clause}",
+            num_args,
+        ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
@@ -225,9 +252,9 @@ async def scan(file: UploadFile = File(...), _=Depends(require_auth)):
         save_debug(img, roi, raw_text, payload)
         return {"ocr_raw": raw_text, "debug_image": debug_image, **payload}
 
-    number, set_total = extracted
-    matches = enrich_with_set_name(cards_by_number(number, set_total))
-    payload = {"number": number, "set_total": set_total, "matches": matches}
+    number, set_total, set_code = extracted
+    matches = enrich_with_set_name(cards_by_number(number, set_total, set_code))
+    payload = {"number": number, "set_total": set_total, "set_code": set_code, "matches": matches}
     save_debug(img, roi, raw_text, payload)
     return {"ocr_raw": raw_text, "debug_image": debug_image, **payload}
 
@@ -238,7 +265,7 @@ def lookup(number: str, _=Depends(require_auth)):
     result = extract_number(number)
     if result is None:
         raise HTTPException(400, "Invalid format. Use e.g. 45/198 or just 45")
-    n, set_total = result
+    n, set_total, _ = result
     matches = enrich_with_set_name(cards_by_number(n, set_total))
     return {"number": n, "set_total": set_total, "matches": matches}
 
