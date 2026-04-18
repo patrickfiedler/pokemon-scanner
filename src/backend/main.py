@@ -289,30 +289,39 @@ def extract_number(text: str) -> tuple[str, str, str | None]:
 # Vision LLM fallback
 # ---------------------------------------------------------------------------
 
-def _crop_for_llm(jpg_bytes: bytes) -> bytes:
-    """Crop the bottom 25% of the card image and upscale it.
+def _prepare_llm_crops(jpg_bytes: bytes) -> tuple[bytes, bytes]:
+    """Return (bottom_strip_jpg, top_strip_jpg) for LLM analysis.
 
-    Sends only the area where the collector number lives, so the LLM doesn't
-    confuse it with HP, attack damage, Pokédex numbers, etc.
+    Bottom strip (y=75-100%): collector number area.
+    Top strip (y=0-30%): Pokémon name + HP area.
+    Both are upscaled to 1200px wide for legibility.
     """
     arr = np.frombuffer(jpg_bytes, np.uint8)
     img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
     h, w = img.shape[:2]
-    crop = img[int(h * 0.75):, :]
-    # Upscale so the small number text is clearly legible
     target_w = 1200
     scale = target_w / w
-    crop = cv2.resize(crop, (target_w, int(crop.shape[0] * scale)), interpolation=cv2.INTER_CUBIC)
-    _, buf = cv2.imencode(".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, 95])
-    return buf.tobytes()
+
+    def _encode(crop: np.ndarray) -> bytes:
+        crop = cv2.resize(crop, (target_w, max(1, int(crop.shape[0] * scale))),
+                          interpolation=cv2.INTER_CUBIC)
+        _, buf = cv2.imencode(".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, 95])
+        return buf.tobytes()
+
+    return _encode(img[int(h * 0.75):, :]), _encode(img[:int(h * 0.30), :])
 
 
-def extract_number_llm(jpg_bytes: bytes) -> tuple[str, str, None] | None:
-    """Ask Mistral Small 3.2 (vision) for the collector number. Returns same
-    tuple as extract_number(), or None if unavailable / unreadable."""
+def extract_number_llm(jpg_bytes: bytes) -> dict | None:
+    """Ask Mistral Small 3.2 (vision) for the collector number and Pokémon name.
+
+    Returns {"number": "7", "total": "15", "name": "Pikachu"} or None.
+    Sends two crops: bottom strip for the number, top strip for the name.
+    """
     if not OVH_API_KEY:
         return None
-    b64 = base64.b64encode(_crop_for_llm(jpg_bytes)).decode()
+    bottom_bytes, top_bytes = _prepare_llm_crops(jpg_bytes)
+    b64_bottom = base64.b64encode(bottom_bytes).decode()
+    b64_top = base64.b64encode(top_bytes).decode()
     try:
         resp = httpx.post(
             _OVH_LLM_URL,
@@ -323,32 +332,63 @@ def extract_number_llm(jpg_bytes: bytes) -> tuple[str, str, None] | None:
                     "role": "user",
                     "content": [
                         {"type": "image_url",
-                         "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                         "image_url": {"url": f"data:image/jpeg;base64,{b64_bottom}"}},
+                        {"type": "image_url",
+                         "image_url": {"url": f"data:image/jpeg;base64,{b64_top}"}},
                         {"type": "text",
                          "text": (
-                             "This is the bottom strip of a Pokémon trading card. "
-                             "Find the collector number — it is printed in small text "
-                             "at the bottom-left corner, in the format NUMBER/TOTAL "
-                             "where both are integers, e.g. '7/15' or '45/198'. "
-                             "It is NOT the HP, attack damage, Pokédex number, or year. "
-                             "Reply with ONLY that number in format X/Y. "
-                             "If you cannot read it clearly, reply with 'unknown'."
+                             "Image 1 is the bottom strip of a Pokémon trading card. "
+                             "Image 2 is the top of the same card showing the Pokémon name and HP. "
+                             "From Image 1: find the collector number at the bottom-left corner "
+                             "in format NUMBER/TOTAL (e.g. '7/15', '45/198'). "
+                             "It is NOT the HP, attack damage, weakness, or Pokédex number. "
+                             "From Image 2: read the Pokémon name exactly as printed on the card. "
+                             "Reply with ONLY valid JSON, no markdown, no explanation: "
+                             "{\"number\": \"7/15\", \"name\": \"Pikachu\"} "
+                             "Use null for any field you cannot read clearly."
                          )},
                     ],
                 }],
-                "max_tokens": 20,
+                "max_tokens": 60,
             },
             timeout=30,
         )
         resp.raise_for_status()
         text = resp.json()["choices"][0]["message"]["content"].strip()
         print(f"[LLM] response: {text!r}")
-        m = NUMBER_RE.search(text)
+        parsed = json.loads(text)
+        number_str = parsed.get("number") or ""
+        m = NUMBER_RE.search(number_str)
+        name = parsed.get("name") or None
         if m:
-            return m.group(1).lstrip("0") or "0", m.group(2), None
+            return {"number": m.group(1).lstrip("0") or "0",
+                    "total": m.group(2), "name": name}
     except Exception as exc:
         print(f"[LLM] error: {exc}")
     return None
+
+
+def _filter_by_name(matches: list[dict], name: str) -> list[dict]:
+    """Return matches whose name (any language) matches the given name.
+
+    Tries exact match first, then prefix, then substring — always returning
+    the tightest set that has at least one result.
+    """
+    name_lower = name.lower().strip()
+    langs = ("de", "en", "it", "fr", "ja")
+
+    def _names(m):
+        return [(m.get(f"name_{l}") or "").lower() for l in langs]
+
+    for strategy in (
+        lambda ns: any(n == name_lower for n in ns),          # exact
+        lambda ns: any(n.startswith(name_lower) for n in ns), # prefix
+        lambda ns: any(name_lower in n for n in ns),          # substring
+    ):
+        filtered = [m for m in matches if strategy(_names(m))]
+        if filtered:
+            return filtered
+    return matches  # no name match at all — return all
 
 
 # ---------------------------------------------------------------------------
@@ -449,10 +489,13 @@ async def scan(file: UploadFile = File(...)):
     extracted = extract_number(raw_text)
 
     llm_used = False
+    llm_name = None
     if extracted is None and OVH_API_KEY:
-        extracted = extract_number_llm(data)
-        if extracted:
+        llm_result = extract_number_llm(data)
+        if llm_result:
             llm_used = True
+            llm_name = llm_result.get("name")
+            extracted = (llm_result["number"], llm_result["total"], None)
 
     if extracted is None:
         payload = {"matches": [], "error": "No collector number found"}
@@ -461,8 +504,13 @@ async def scan(file: UploadFile = File(...)):
 
     number, set_total, set_code = extracted
     matches = enrich_with_set_name(cards_by_number(number, set_total, set_code))
+
+    # Auto-disambiguate using LLM-read name when multiple sets match
+    if llm_name and len(matches) > 1:
+        matches = _filter_by_name(matches, llm_name)
+
     payload = {"number": number, "set_total": set_total, "set_code": set_code,
-               "matches": matches, "llm_used": llm_used}
+               "matches": matches, "llm_used": llm_used, "llm_name": llm_name}
     save_debug(img, roi, raw_text, payload)
     return {"ocr_raw": raw_text, "debug_image": debug_image, **payload}
 
