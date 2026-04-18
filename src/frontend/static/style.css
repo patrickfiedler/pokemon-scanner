@@ -123,6 +123,22 @@ button:active { opacity: 0.8; }
   color: #eee;
   text-align: center;
 }
+#manual-num, #manual-total {
+  width: 5rem;
+  padding: 0.7rem 0.4rem;
+  font-size: 1rem;
+  border-radius: 8px;
+  border: none;
+  background: #16213e;
+  color: #eee;
+  text-align: center;
+}
+#manual-slash {
+  font-size: 1.4rem;
+  line-height: 1;
+  align-self: center;
+  color: #aaa;
+}
 #manual-btn {
   width: auto;
   margin-top: 0;

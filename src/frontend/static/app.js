@@ -4,7 +4,8 @@ const video      = document.getElementById("video");
 const canvas     = document.getElementById("canvas");
 const captureBtn = document.getElementById("capture-btn");
 const scanAgain  = document.getElementById("scan-again-btn");
-const manualInput = document.getElementById("manual-input");
+const manualNum   = document.getElementById("manual-num");
+const manualTotal = document.getElementById("manual-total");
 const manualBtn   = document.getElementById("manual-btn");
 const scanner    = document.getElementById("scanner");
 const result     = document.getElementById("result");
@@ -54,7 +55,8 @@ captureBtn.addEventListener("click", async () => {
 scanAgain.addEventListener("click", () => {
   result.hidden = true;
   debug.hidden = true;
-  manualInput.value = "";
+  manualNum.value = "";
+  manualTotal.value = "";
   scanner.hidden = false;
 });
 
@@ -138,11 +140,13 @@ function hideAll() {
 
 // --- Manual lookup ---
 async function doManualLookup() {
-  const val = manualInput.value.trim();
-  if (!val) return;
+  const num   = manualNum.value.trim();
+  const total = manualTotal.value.trim();
+  if (!num) return;
+  const query = total ? `${num}/${total}` : num;
   showLoading();
   try {
-    const res  = await fetch("/lookup?number=" + encodeURIComponent(val));
+    const res  = await fetch("/lookup?number=" + encodeURIComponent(query));
     const data = await res.json();
     if (!res.ok) { showError(data.detail || "Suche fehlgeschlagen"); return; }
     handleScanResult(data);
@@ -152,7 +156,17 @@ async function doManualLookup() {
 }
 
 manualBtn.addEventListener("click", doManualLookup);
-manualInput.addEventListener("keydown", (e) => { if (e.key === "Enter") doManualLookup(); });
+[manualNum, manualTotal].forEach(el =>
+  el.addEventListener("keydown", (e) => { if (e.key === "Enter") doManualLookup(); })
+);
+
+// Auto-advance: jump to total field when num field is "full" (has a value and user hits /)
+manualNum.addEventListener("keydown", (e) => {
+  if (e.key === "/" && manualNum.value.trim()) {
+    e.preventDefault();
+    manualTotal.focus();
+  }
+});
 
 // --- Start ---
 startCamera();

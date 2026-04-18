@@ -26,8 +26,11 @@
       <div id="manual-entry">
         <p>oder Nummer manuell eingeben</p>
         <div id="manual-row">
-          <input id="manual-input" type="text" inputmode="numeric"
-                 placeholder="z. B. 045/198" autocomplete="off" />
+          <input id="manual-num" type="text" inputmode="numeric" pattern="\d*"
+                 placeholder="045" autocomplete="off" maxlength="4" />
+          <span id="manual-slash">/</span>
+          <input id="manual-total" type="text" inputmode="numeric" pattern="\d*"
+                 placeholder="198" autocomplete="off" maxlength="4" />
           <button id="manual-btn">🔍</button>
         </div>
       </div>
