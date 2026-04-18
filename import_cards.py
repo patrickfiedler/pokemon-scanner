@@ -280,11 +280,11 @@ def main() -> None:
         for idx, slug in enumerate(slug_order, 1):
             names = fetch_pokeapi_names(slug)
             slug_cache[slug] = names
-            de = names.get("de", "—") if names else "(not a Pokémon)"
-            print(f"  [{idx}/{len(slug_order)}] {slug} → {de}")
             if names:
                 found += 1
+            print("." if names else "x", end="" if idx % 50 else f" {idx}\n", flush=True)
             time.sleep(0.07)  # be polite to PokeAPI
+        print(f"\n  {found}/{len(slug_order)} species found.")
 
         # Update cards — COALESCE keeps existing TCGdex translations intact
         updates = []
