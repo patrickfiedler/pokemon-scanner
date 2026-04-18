@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Import card data from the TCGdex public API into a local SQLite database.
+Import card data from the TCGdex public API into a local SQLite database,
+then augment missing Pokémon names from the PokeAPI.
 
-Languages imported: de (German), en (English), it (Italian), ja (Japanese)
+Languages imported: de (German), en (English), fr (French), it (Italian), ja (Japanese)
 
 Strategy:
   - Fetch the set list per language to know coverage
@@ -10,6 +11,8 @@ Strategy:
     set details — each returns the card list with localised names
   - Construct image URLs from the series slug in the set symbol URL
   - Store all language variants; no individual card API calls needed
+  - After TCGdex import, call PokeAPI for cards still missing a DE/FR/IT name
+    to get official species translations (e.g. Kilowattrel → Voltrean)
 
 Usage:
     python import_cards.py
@@ -70,6 +73,38 @@ def extract_series(data: dict) -> str | None:
 
 def make_image_url(series: str, set_id: str, local_id: str) -> str:
     return f"https://assets.tcgdex.net/en/{series}/{set_id}/{local_id}"
+
+
+# TCG card name suffixes — order matters (longer first to avoid partial matches)
+_SUFFIXES = [" VMAX", " VSTAR", " LV.X", " LEGEND", " EX", " GX", " ex", " V", " ◆"]
+
+def parse_card_name(name_en: str) -> tuple[str, str]:
+    """Split e.g. 'Kilowattrel ex' → ('kilowattrel', ' ex') for PokeAPI lookup.
+
+    Returns (pokeapi_slug, suffix). For tag teams ('A & B-GX') returns
+    the first Pokémon slug and the rest as suffix.
+    """
+    if " & " in name_en:
+        first, rest = name_en.split(" & ", 1)
+        return first.lower().replace(" ", "-"), " & " + rest
+    for suffix in _SUFFIXES:
+        if name_en.endswith(suffix):
+            base = name_en[: -len(suffix)]
+            return base.lower().replace(" ", "-"), suffix
+    return name_en.lower().replace(" ", "-"), ""
+
+
+def fetch_pokeapi_names(slug: str) -> dict[str, str]:
+    """Return {lang_code: name} from PokeAPI for a species slug."""
+    data = fetch_json(f"https://pokeapi.co/api/v2/pokemon-species/{slug}")
+    if not data:
+        return {}
+    want = {"de", "fr", "it", "ja"}
+    return {
+        e["language"]["name"]: e["name"]
+        for e in data.get("names", [])
+        if e["language"]["name"] in want
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +221,48 @@ def main() -> None:
         )
         conn.commit()
         print(f" — {len(rows)} cards")
+
+    # --- Step 3: Augment missing names from PokeAPI ---
+    print("\nFetching Pokémon species names from PokeAPI for missing translations…")
+    missing_rows = conn.execute(
+        "SELECT DISTINCT name_en FROM cards "
+        "WHERE name_en IS NOT NULL AND (name_de IS NULL OR name_fr IS NULL OR name_it IS NULL)"
+    ).fetchall()
+
+    # Build slug → pokeapi names cache (one request per unique species)
+    slug_cache: dict[str, dict] = {}
+    for idx, (name_en,) in enumerate(missing_rows):
+        slug, _ = parse_card_name(name_en)
+        if slug in slug_cache:
+            continue
+        names = fetch_pokeapi_names(slug)
+        slug_cache[slug] = names
+        if names:
+            print(f"  [{idx+1}/{len(missing_rows)}] {name_en} → de:{names.get('de','?')}")
+        time.sleep(0.07)  # be polite to PokeAPI
+
+    # Update cards — COALESCE keeps existing TCGdex translations intact
+    updates = []
+    for (name_en,) in missing_rows:
+        slug, suffix = parse_card_name(name_en)
+        names = slug_cache.get(slug)
+        if not names:
+            continue
+        def localized(lang: str) -> str | None:
+            n = names.get(lang)
+            return (n + suffix) if n else None
+        updates.append((localized("de"), localized("fr"), localized("it"), name_en))
+
+    conn.executemany(
+        """UPDATE cards
+           SET name_de = COALESCE(name_de, ?),
+               name_fr = COALESCE(name_fr, ?),
+               name_it = COALESCE(name_it, ?)
+           WHERE name_en = ?""",
+        updates,
+    )
+    conn.commit()
+    print(f"  Updated {len(updates)} card name groups with PokeAPI translations.")
 
     # --- Summary ---
     n_sets  = conn.execute("SELECT COUNT(*) FROM sets").fetchone()[0]
