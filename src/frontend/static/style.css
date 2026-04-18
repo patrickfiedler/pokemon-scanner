@@ -29,7 +29,8 @@ main {
   border-radius: 12px;
   overflow: hidden;
   background: #000;
-  aspect-ratio: 3/4;
+  aspect-ratio: 4/3;
+  max-height: 52vh;
 }
 
 #video {

@@ -11,6 +11,9 @@ const cardInfo   = document.getElementById("card-info");
 const multiMatch = document.getElementById("multi-match");
 const matchList  = document.getElementById("match-list");
 const errorMsg   = document.getElementById("error-msg");
+const debug      = document.getElementById("debug");
+const debugOcr   = document.getElementById("debug-ocr");
+const debugImage = document.getElementById("debug-image");
 
 // --- Camera setup ---
 async function startCamera() {
@@ -48,11 +51,19 @@ captureBtn.addEventListener("click", async () => {
 
 scanAgain.addEventListener("click", () => {
   result.hidden = true;
+  debug.hidden = true;
   scanner.hidden = false;
 });
 
 // --- Result handling ---
 function handleScanResult(data) {
+  // Always show debug info
+  debug.hidden = false;
+  debugOcr.textContent = JSON.stringify(data.ocr_raw);
+  if (data.debug_image) {
+    debugImage.src = "data:image/jpeg;base64," + data.debug_image;
+  }
+
   if (data.error || data.matches.length === 0) {
     showError(data.error || "No card found. Try better lighting or hold the card steadier.");
     return;

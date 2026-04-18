@@ -89,7 +89,7 @@ def get_db() -> sqlite3.Connection:
 def preprocess_for_ocr(img: np.ndarray) -> np.ndarray:
     """Crop bottom-right, enlarge, convert to high-contrast grayscale."""
     h, w = img.shape[:2]
-    # Bottom-right 25% x 12% — where collector number lives
+    # Bottom-right corner: rightmost 45%, bottom 12%
     roi = img[int(h * 0.88):h, int(w * 0.55):w]
     # Upscale for better OCR
     roi = cv2.resize(roi, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
@@ -101,9 +101,16 @@ def preprocess_for_ocr(img: np.ndarray) -> np.ndarray:
     return thresh
 
 
+def preprocess_to_jpeg(img: np.ndarray) -> str:
+    """Return preprocessed ROI as base64 JPEG for debug display."""
+    processed = preprocess_for_ocr(img)
+    _, buf = cv2.imencode(".jpg", processed)
+    return base64.b64encode(buf).decode()
+
+
 def ocr_image(img: np.ndarray) -> str:
     processed = preprocess_for_ocr(img)
-    config = "--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789/ABCDEFGHIJKLMNOPQRSTUVWXYZ "
+    config = "--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789/ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     return pytesseract.image_to_string(processed, config=config)
 
 
@@ -134,10 +141,11 @@ async def scan(file: UploadFile = File(...), _=Depends(require_auth)):
         raise HTTPException(400, "Could not decode image")
 
     raw_text = ocr_image(img)
+    debug_image = preprocess_to_jpeg(img)
     result = extract_number(raw_text)
 
     if result is None:
-        return {"ocr_raw": raw_text, "matches": [], "error": "No collector number found"}
+        return {"ocr_raw": raw_text, "debug_image": debug_image, "matches": [], "error": "No collector number found"}
 
     number, set_total = result
 
@@ -153,6 +161,7 @@ async def scan(file: UploadFile = File(...), _=Depends(require_auth)):
 
     return {
         "ocr_raw": raw_text,
+        "debug_image": debug_image,
         "number": number,
         "set_total": set_total,
         "matches": matches,

@@ -17,7 +17,7 @@
       <div id="viewfinder">
         <video id="video" autoplay playsinline muted></video>
         <div id="guide">
-          <span>Line up the bottom of the card</span>
+          ↘ bottom-right corner of card here
         </div>
       </div>
       <button id="capture-btn">📸 Scan Card</button>
@@ -45,6 +45,11 @@
         <ul id="match-list"></ul>
       </div>
       <div id="error-msg" hidden></div>
+      <details id="debug" hidden>
+        <summary>Debug info</summary>
+        <p>OCR raw: <code id="debug-ocr"></code></p>
+        <img id="debug-image" alt="Preprocessed ROI" style="max-width:100%;margin-top:0.5rem;border-radius:6px"/>
+      </details>
       <button id="scan-again-btn">🔄 Scan Another</button>
     </section>
   </main>
