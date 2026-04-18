@@ -367,6 +367,9 @@ def extract_number_llm(jpg_bytes: bytes) -> dict | None:
         if m:
             return {"number": m.group(1).lstrip("0") or "0",
                     "total": m.group(2), "name": name}
+        if name:
+            # Name found but no valid collector number (e.g. energy cards)
+            return {"number": None, "total": None, "name": name}
     except Exception as exc:
         err = str(exc)
         print(f"[LLM] error: {err}")
@@ -557,22 +560,23 @@ async def scan(file: UploadFile = File(...)):
         if llm_result:
             llm_used = True
             llm_name = llm_result.get("name")
-            extracted = (llm_result["number"], llm_result["total"], None)
+            num = llm_result.get("number")
+            if num:
+                extracted = (num, llm_result["total"], None)
 
     # Tesseract fallback if LLM unavailable or returned nothing
     if extracted is None:
         extracted = extract_number(raw_text)
 
-    if extracted is None:
-        payload = {"matches": [], "error": "No collector number found"}
-        save_debug(img, roi, raw_text, payload)
-        return {"ocr_raw": raw_text, "debug_image": debug_image, **payload}
-
-    # Energy cards: number on card is unreliable — use name lookup instead
+    # Energy cards identified by name — skip number lookup entirely
     if llm_name and _is_energy_name(llm_name):
         canonical = _canonical_energy_name(llm_name)
         matches = enrich_with_set_name(cards_by_name(canonical))
         number, set_total, set_code = "?", None, None
+    elif extracted is None:
+        payload = {"matches": [], "error": "No collector number found"}
+        save_debug(img, roi, raw_text, payload)
+        return {"ocr_raw": raw_text, "debug_image": debug_image, **payload}
     else:
         number, set_total, set_code = extracted
         matches = enrich_with_set_name(cards_by_number(number, set_total, set_code))
