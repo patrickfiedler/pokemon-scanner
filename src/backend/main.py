@@ -403,7 +403,36 @@ def _filter_by_name(matches: list[dict], name: str) -> list[dict]:
 # Routes
 # ---------------------------------------------------------------------------
 
-def cards_by_number(number: str, set_total: str | None = None, set_code: str | None = None) -> list[dict]:
+_ENERGY_KEYWORDS = ("energie", "energy")
+
+
+def _is_energy_name(name: str) -> bool:
+    n = name.lower()
+    return any(kw in n for kw in _ENERGY_KEYWORDS)
+
+
+def cards_by_name(name: str) -> list[dict]:
+    """Look up cards by name (any language), exact then substring."""
+    name_lower = name.lower().strip()
+    conn = get_db()
+    try:
+        for operator in ("=", "LIKE"):
+            val = name_lower if operator == "=" else f"%{name_lower}%"
+            rows = conn.execute(
+                """SELECT * FROM cards WHERE
+                   LOWER(name_de) {} ? OR LOWER(name_en) {} ? OR
+                   LOWER(name_it) {} ? OR LOWER(name_fr) {} ? OR
+                   LOWER(name_ja) {} ?""".format(*([operator] * 5)),
+                [val] * 5,
+            ).fetchall()
+            if rows:
+                return [dict(r) for r in rows]
+    finally:
+        conn.close()
+    return []
+
+
+
     """Look up cards by collector number.
 
     Filtering priority (most → least specific):
@@ -515,12 +544,16 @@ async def scan(file: UploadFile = File(...)):
         save_debug(img, roi, raw_text, payload)
         return {"ocr_raw": raw_text, "debug_image": debug_image, **payload}
 
-    number, set_total, set_code = extracted
-    matches = enrich_with_set_name(cards_by_number(number, set_total, set_code))
-
-    # Auto-disambiguate using LLM-read name when multiple sets match
-    if llm_name and len(matches) > 1:
-        matches = _filter_by_name(matches, llm_name)
+    # Energy cards: number on card is unreliable — use name lookup instead
+    if llm_name and _is_energy_name(llm_name):
+        matches = enrich_with_set_name(cards_by_name(llm_name))
+        number, set_total, set_code = "?", None, None
+    else:
+        number, set_total, set_code = extracted
+        matches = enrich_with_set_name(cards_by_number(number, set_total, set_code))
+        # Auto-disambiguate using LLM-read name when multiple sets match
+        if llm_name and len(matches) > 1:
+            matches = _filter_by_name(matches, llm_name)
 
     payload = {"number": number, "set_total": set_total, "set_code": set_code,
                "matches": matches, "llm_used": llm_used, "llm_name": llm_name}
