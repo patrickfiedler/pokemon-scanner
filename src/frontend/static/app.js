@@ -129,7 +129,23 @@ function showMultiMatch(matches) {
   matchList.innerHTML = "";
   matches.forEach(card => {
     const li = document.createElement("li");
-    li.textContent = `${card.name} — ${card.set_name || card.set_id.toUpperCase()} #${card.number}`;
+    li.style.display = "flex";
+    li.style.alignItems = "center";
+    li.style.gap = "0.75rem";
+    li.style.cursor = "pointer";
+
+    if (card.image_small) {
+      const img = document.createElement("img");
+      img.src = card.image_small;
+      img.alt = card.name;
+      img.style.cssText = "width:60px;border-radius:4px;flex-shrink:0";
+      li.appendChild(img);
+    }
+
+    const label = document.createElement("span");
+    label.textContent = `${card.name} — ${card.set_name || card.set_id.toUpperCase()} #${card.number}`;
+    li.appendChild(label);
+
     li.addEventListener("click", () => showCard(card));
     matchList.appendChild(li);
   });

@@ -13,6 +13,8 @@ import os
 import re
 import secrets
 import sqlite3
+import urllib.error
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
@@ -21,7 +23,7 @@ import numpy as np
 import pytesseract
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -29,9 +31,11 @@ from starlette.requests import Request
 
 DB_PATH    = Path(__file__).parent.parent.parent / "data" / "cards.db"
 DEBUG_DIR  = Path(__file__).parent.parent.parent / "data" / "debug"
+IMAGE_DIR  = Path(__file__).parent.parent.parent / "data" / "card_images"
 STATIC_DIR = Path(__file__).parent.parent / "frontend" / "static"
 
 DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
 # Auth — middleware covers ALL requests including static files
@@ -228,8 +232,8 @@ def enrich_with_set_name(matches: list[dict]) -> list[dict]:
         m["set_name"] = s.get("name_de") or s.get("name_en") or s.get("name_it") or s.get("name_fr") or m["set_id"]
         # Best card name: German > English > Italian > Japanese
         m["name"] = m.get("name_de") or m.get("name_en") or m.get("name_it") or m.get("name_fr") or m.get("name_ja") or "?"
-        # Expose image field (was image_small in old schema)
-        m["image_small"] = m.get("image")
+        # Route image through local cache endpoint
+        m["image_small"] = f"/card-image/{m['id']}" if m.get("image") else None
     return matches
 
 
@@ -280,6 +284,38 @@ def get_card(card_id: str, _=Depends(require_auth)):
     if row is None:
         raise HTTPException(404, "Card not found")
     return dict(row)
+
+
+@app.get("/card-image/{card_id}")
+async def card_image(card_id: str, _=Depends(require_auth)):
+    """Serve card image from local cache; fetch from TCGdex on first request."""
+    # Sanitise: only allow characters that appear in TCGdex card IDs
+    if not re.fullmatch(r"[a-zA-Z0-9_\-]+", card_id):
+        raise HTTPException(400, "Invalid card ID")
+
+    cache_file = IMAGE_DIR / f"{card_id}.webp"
+    if cache_file.exists():
+        return FileResponse(cache_file, media_type="image/webp")
+
+    # Look up the base image URL from DB
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT image FROM cards WHERE id = ?", (card_id,)).fetchone()
+    finally:
+        conn.close()
+
+    if not row or not row["image"]:
+        raise HTTPException(404, "No image available for this card")
+
+    url = row["image"] + "/low.webp"
+    try:
+        with urllib.request.urlopen(url, timeout=10) as r:
+            img_data = r.read()
+    except Exception:
+        raise HTTPException(502, "Could not fetch image from TCGdex")
+
+    cache_file.write_bytes(img_data)
+    return Response(content=img_data, media_type="image/webp")
 
 
 @app.get("/sets")
