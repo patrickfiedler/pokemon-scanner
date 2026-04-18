@@ -580,22 +580,23 @@ def _detect_energy_type_by_color(img: np.ndarray) -> str | None:
     v = hsv[:, :, 2]  # value/brightness
 
     mean_s = float(s.mean())
-    mean_v = float(v.mean())
+    dark_ratio = float((v < 80).sum() / v.size)
 
-    # Low saturation → Darkness (dark) or Metal (grey/silver).
-    # Check this BEFORE the colorful-pixel ratio, because artwork details
-    # on these cards can inflate the ratio above the 5% threshold.
+    # Metal: very low saturation (grey/silver), clearly distinct
     if mean_s < 50:
-        result = "Darkness Energy" if mean_v < 100 else "Metal Energy"
-        print(f"[Color] low-sat mean_s={mean_s:.1f} mean_v={mean_v:.1f} → {result}")
-        return result
+        print(f"[Color] metal detected mean_s={mean_s:.1f}")
+        return "Metal Energy"
+
+    # Darkness: significantly more dark pixels than any other type.
+    # (Hue-based detection fails — darkness cards land in the water hue range.)
+    if dark_ratio > 0.17:
+        print(f"[Color] darkness detected dark_ratio={dark_ratio:.1%}")
+        return "Darkness Energy"
 
     colorful_mask = (s > 60) & (v > 60)  # vivid, non-dark pixels
     colorful_ratio = colorful_mask.sum() / colorful_mask.size
     if colorful_ratio < 0.05:
-        result = "Darkness Energy" if mean_v < 100 else "Metal Energy"
-        print(f"[Color] low-colorful mean_v={mean_v:.1f} → {result}")
-        return result
+        return None  # can't determine
 
     hues = hsv[:, :, 0][colorful_mask]
     if len(hues) == 0:
