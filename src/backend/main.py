@@ -560,7 +560,7 @@ def _best_energy_card(matches: list[dict]) -> list[dict]:
     return [matches[0]]
 
 
-
+def cards_by_name(name: str) -> list[dict]:
     """Look up cards by name (any language), exact then substring."""
     name_lower = name.lower().strip()
     conn = get_db()
@@ -582,6 +582,7 @@ def _best_energy_card(matches: list[dict]) -> list[dict]:
 
 
 
+def cards_by_number(number: str, set_total: str | None = None, set_code: str | None = None) -> list[dict]:
     """Look up cards by collector number.
 
     Filtering priority (most → least specific):
