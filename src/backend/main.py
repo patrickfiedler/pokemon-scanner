@@ -565,15 +565,18 @@ def _canonical_energy_name(name: str) -> str:
 def _detect_energy_type_by_color(img: np.ndarray) -> str | None:
     """Determine energy type from dominant card color.
 
-    Crops the central 40% of the card (where the energy symbol is large),
-    converts to HSV, filters out near-white and near-black pixels,
-    then finds the most common hue bucket.
+    Crops the central 50% of the card (where the energy symbol is large),
+    converts to HSV, applies several heuristics in priority order:
+      1. Metal:    mean saturation < 65 (grey/silver)
+      2. Darkness: >17% of pixels very dark (v < 80)
+      3. Psychic:  significant pink/purple with no orange → avoids fire confusion
+      4. Hue map:  dominant hue bucket for remaining types
 
-    Returns a canonical energy name like 'Fire Energy', or None if unclear.
+    Always logs key metrics for debugging. Returns canonical name or None.
     """
     h, w = img.shape[:2]
-    # Central region: vertically 25-75%, horizontally 15-85%
-    crop = img[int(h * 0.25):int(h * 0.75), int(w * 0.15):int(w * 0.85)]
+    # Central region: vertically 20-80%, horizontally 10-90%
+    crop = img[int(h * 0.20):int(h * 0.80), int(w * 0.10):int(w * 0.90)]
     hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
 
     s = hsv[:, :, 1]  # saturation
@@ -582,34 +585,48 @@ def _detect_energy_type_by_color(img: np.ndarray) -> str | None:
     mean_s = float(s.mean())
     dark_ratio = float((v < 80).sum() / v.size)
 
-    # Metal: very low saturation (grey/silver), clearly distinct
-    if mean_s < 50:
-        print(f"[Color] metal detected mean_s={mean_s:.1f}")
+    # Metal: grey/silver → low saturation. Threshold raised to 65 for real
+    # camera scans (reference images had mean_s≈31; real scans may be higher
+    # due to reflections/lighting).
+    if mean_s < 65:
+        print(f"[Color] metal detected mean_s={mean_s:.1f} dark_ratio={dark_ratio:.1%}")
         return "Metal Energy"
 
-    # Darkness: significantly more dark pixels than any other type.
-    # (Hue-based detection fails — darkness cards land in the water hue range.)
+    # Darkness: more dark pixels than any other type.
+    # Hue-based detection fails (darkness hue falls in water range).
     if dark_ratio > 0.17:
-        print(f"[Color] darkness detected dark_ratio={dark_ratio:.1%}")
+        print(f"[Color] darkness detected dark_ratio={dark_ratio:.1%} mean_s={mean_s:.1f}")
         return "Darkness Energy"
 
     colorful_mask = (s > 60) & (v > 60)  # vivid, non-dark pixels
-    colorful_ratio = colorful_mask.sum() / colorful_mask.size
+    colorful_ratio = float(colorful_mask.sum() / colorful_mask.size)
     if colorful_ratio < 0.05:
-        return None  # can't determine
-
-    hues = hsv[:, :, 0][colorful_mask]
-    if len(hues) == 0:
+        print(f"[Color] not enough colorful pixels ({colorful_ratio:.1%}), mean_s={mean_s:.1f} dark_ratio={dark_ratio:.1%}")
         return None
+
+    hue_ch = hsv[:, :, 0]
+    hues = hue_ch[colorful_mask]
+
+    # Psychic (pink/magenta, hue ≈130–179) vs Fire (red/orange, hue ≈0–17 or 161–179).
+    # Resolve ambiguity: fire cards always have orange/yellow pixels (hue 5–35);
+    # psychic cards do not. Check this before the generic hue map.
+    pink_mask   = (hue_ch >= 130) & (hue_ch <= 179) & colorful_mask
+    orange_mask = (hue_ch >= 5)   & (hue_ch <= 35)  & colorful_mask
+    pink_ratio   = float(pink_mask.sum()   / colorful_mask.size)
+    orange_ratio = float(orange_mask.sum() / colorful_mask.size)
+    if pink_ratio > 0.15 and orange_ratio < 0.08:
+        print(f"[Color] psychic detected pink_ratio={pink_ratio:.1%} orange_ratio={orange_ratio:.1%}")
+        return "Psychic Energy"
 
     # Find dominant hue using histogram (bins of width ~10 degrees)
     hist, bin_edges = np.histogram(hues, bins=18, range=(0, 180))
     dominant_bin = int(np.argmax(hist))
     dominant_hue = int(bin_edges[dominant_bin])
+    print(f"[Color] dominant hue={dominant_hue} mean_s={mean_s:.1f} dark_ratio={dark_ratio:.1%} "
+          f"colorful={colorful_ratio:.1%} pink={pink_ratio:.1%} orange={orange_ratio:.1%}")
 
     for hue_min, hue_max, canonical in _HUE_ENERGY_MAP:
         if hue_min <= dominant_hue <= hue_max:
-            print(f"[Color] dominant hue={dominant_hue} → {canonical}")
             return canonical
 
     print(f"[Color] dominant hue={dominant_hue} → unmapped")
@@ -767,9 +784,9 @@ async def scan(file: UploadFile = File(...)):
         if canonical == llm_name:
             llm_energy = _detect_energy_type_llm(img)
             color_energy = _detect_energy_type_by_color(img)
-            # Color detector is more reliable for darkness/metal (low saturation).
-            # If LLM guessed psychic/colorless but color says darkness/metal, trust color.
-            _color_wins = {"Darkness Energy", "Metal Energy"}
+            # Color detector is more reliable for darkness, metal, and psychic.
+            # These are the types most often misidentified by LLM.
+            _color_wins = {"Darkness Energy", "Metal Energy", "Psychic Energy"}
             if color_energy in _color_wins and llm_energy not in _color_wins:
                 canonical = color_energy
                 energy_method = "color"
