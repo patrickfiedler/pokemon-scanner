@@ -359,7 +359,9 @@ async def scan(file: UploadFile = File(...)):
 
     roi = preprocess_for_ocr(img)
     raw_text = ocr_image(img)
-    debug_image = preprocess_to_jpeg(img)
+    roi_debug = preprocess_for_ocr(img)
+    _, buf = cv2.imencode(".jpg", roi_debug)
+    debug_image = base64.b64encode(buf).decode()
     extracted = extract_number(raw_text)
 
     if extracted is None:
