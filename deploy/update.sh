@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Update the pokemon-scanner app from GitHub.
-# Run as root from anywhere. Re-execs itself if it was updated.
+# Run as root from anywhere. Re-execs itself when the script is updated.
 set -euo pipefail
 
 APP_DIR=/opt/pokemon-scanner
