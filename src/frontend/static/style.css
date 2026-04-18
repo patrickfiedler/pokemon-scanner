@@ -1,0 +1,125 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: system-ui, sans-serif;
+  background: #1a1a2e;
+  color: #eee;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+header {
+  padding: 1rem;
+  text-align: center;
+  font-size: 1.2rem;
+}
+
+main {
+  width: 100%;
+  max-width: 480px;
+  padding: 0 1rem 2rem;
+}
+
+/* --- Viewfinder --- */
+#viewfinder {
+  position: relative;
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+  aspect-ratio: 3/4;
+}
+
+#video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+#guide {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 18%;
+  border-top: 2px dashed rgba(255,220,0,0.8);
+  background: rgba(255,220,0,0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  color: rgba(255,220,0,0.9);
+}
+
+/* --- Buttons --- */
+button {
+  display: block;
+  width: 100%;
+  margin-top: 1rem;
+  padding: 0.9rem;
+  font-size: 1.1rem;
+  font-weight: bold;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  background: #e3350d;
+  color: white;
+}
+button:active { opacity: 0.8; }
+
+/* --- Result card --- */
+#card-info {
+  display: flex;
+  gap: 1rem;
+  background: #16213e;
+  border-radius: 12px;
+  padding: 1rem;
+  margin-top: 1rem;
+}
+
+#card-image {
+  width: 120px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+#card-details h2 { font-size: 1.1rem; margin-bottom: 0.4rem; }
+#card-details p  { font-size: 0.85rem; color: #aaa; margin-top: 0.2rem; }
+
+/* --- Multi-match list --- */
+#multi-match { margin-top: 1rem; }
+#match-list  { list-style: none; padding: 0; margin-top: 0.5rem; }
+#match-list li {
+  background: #16213e;
+  padding: 0.7rem 1rem;
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+  cursor: pointer;
+}
+#match-list li:hover { background: #0f3460; }
+
+/* --- Error --- */
+#error-msg {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #3d0000;
+  border-radius: 8px;
+  color: #ff8888;
+}
+
+/* --- Spinner --- */
+.spinner {
+  display: inline-block;
+  width: 1.2rem; height: 1.2rem;
+  border: 3px solid #fff3;
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: middle;
+  margin-right: 0.5rem;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+#loading { margin-top: 1rem; text-align: center; }

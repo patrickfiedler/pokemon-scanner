@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pokémon Card Scanner</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>🔍 Pokémon Card Scanner</h1>
+  </header>
+
+  <main>
+    <!-- Camera view -->
+    <section id="scanner">
+      <div id="viewfinder">
+        <video id="video" autoplay playsinline muted></video>
+        <div id="guide">
+          <span>Line up the bottom of the card</span>
+        </div>
+      </div>
+      <button id="capture-btn">📸 Scan Card</button>
+      <canvas id="canvas" hidden></canvas>
+    </section>
+
+    <!-- Result -->
+    <section id="result" hidden>
+      <div id="loading" hidden>
+        <span class="spinner"></span> Scanning…
+      </div>
+      <div id="card-info" hidden>
+        <img id="card-image" alt="Card image" />
+        <div id="card-details">
+          <h2 id="card-name"></h2>
+          <p id="card-set"></p>
+          <p id="card-number"></p>
+          <p id="card-hp"></p>
+          <p id="card-types"></p>
+          <p id="card-rarity"></p>
+        </div>
+      </div>
+      <div id="multi-match" hidden>
+        <p>Multiple cards found — which set is yours?</p>
+        <ul id="match-list"></ul>
+      </div>
+      <div id="error-msg" hidden></div>
+      <button id="scan-again-btn">🔄 Scan Another</button>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
