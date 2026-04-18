@@ -208,14 +208,12 @@ def _ocr_strip(roi_bgr: np.ndarray) -> str:
     """Preprocess a BGR image strip and return Tesseract output."""
     roi = cv2.resize(roi_bgr, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    # Gaussian blur suppresses high-frequency holographic foil noise
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     thresh = cv2.adaptiveThreshold(
-        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 51, 12
+        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 10
     )
     config = (
         "--oem 3 --psm 11 "
-        "-c tessedit_char_whitelist=0123456789/ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "-c tessedit_char_whitelist=0123456789/"
     )
     return pytesseract.image_to_string(thresh, config=config)
 
@@ -223,21 +221,21 @@ def _ocr_strip(roi_bgr: np.ndarray) -> str:
 def preprocess_for_ocr(img: np.ndarray) -> np.ndarray:
     """Return the primary ROI as a preprocessed image (for debug display)."""
     h, w = img.shape[:2]
-    roi = img[int(h * 0.80):int(h * 0.95), 0:w]
+    roi = img[int(h * 0.84):int(h * 0.93), 0:w]
     roi = cv2.resize(roi, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     return cv2.adaptiveThreshold(
-        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 51, 12
+        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 10
     )
 
 
 def ocr_image(img: np.ndarray) -> str:
     """OCR the card number from three overlapping bottom strips and combine."""
     h, w = img.shape[:2]
-    # Three strips covering slightly different vertical positions to handle
-    # cards held at different heights in the viewfinder.
-    strips = [(0.78, 0.93), (0.82, 0.96), (0.74, 0.90)]
+    # With the bracket guide, the card fills the viewfinder and its number
+    # lands at y≈0.82-0.93 of the captured frame. Three overlapping strips
+    # give tolerance for slight variation in card position.
+    strips = [(0.82, 0.91), (0.84, 0.93), (0.86, 0.95)]
     parts = []
     for y0, y1 in strips:
         roi = img[int(h * y0):int(h * y1), 0:w]
@@ -256,15 +254,30 @@ def extract_number(text: str) -> tuple[str, str, str | None]:
     """Return (card_number, set_total, set_code_or_None).
 
     Tries to also capture a printed set code (e.g. 'M23H') before the number.
-    set_code may be None if no code was detected.
+    Collects ALL number/total matches from the combined strip text, applies
+    a leading-digit correction when num > total (e.g. '97/15' → '7/15'),
+    then votes — the most frequent valid candidate wins. This handles both
+    OCR noise (stray leading digits) and false positives from other text.
     """
+    from collections import Counter
     m = SET_CODE_RE.search(text)
     if m:
         return m.group(2).lstrip("0") or "0", m.group(3), m.group(1)
-    m = NUMBER_RE.search(text)
-    if m:
-        return m.group(1).lstrip("0") or "0", m.group(2), None
-    return None
+
+    candidates = []
+    for m in NUMBER_RE.finditer(text):
+        num_str, total_str = m.group(1), m.group(2)
+        num, total = int(num_str), int(total_str)
+        while num > total and len(num_str) > 1:
+            num_str = num_str[1:]
+            num = int(num_str)
+        if num <= total:
+            candidates.append((num_str.lstrip("0") or "0", total_str))
+
+    if not candidates:
+        return None
+    (num_str, total_str), _ = Counter(candidates).most_common(1)[0]
+    return num_str, total_str, None
 
 
 # ---------------------------------------------------------------------------
