@@ -3,3 +3,7 @@ __pycache__/
 .env
 venv/
 data/
+todo.md
+session_log.md
+go_on_from_here.md
+docs/
