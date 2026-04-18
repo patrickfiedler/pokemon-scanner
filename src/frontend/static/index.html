@@ -92,6 +92,21 @@
       <div id="collection-header">
         <span id="collection-count">0 Karten</span>
       </div>
+      <div id="chip-bar">
+        <div class="chip-group" id="sort-chips">
+          <button class="chip active" data-sort="newest">Neueste</button>
+          <button class="chip" data-sort="name-asc">Name ↑</button>
+          <button class="chip" data-sort="name-desc">Name ↓</button>
+          <button class="chip" data-sort="quantity">Häufigste</button>
+        </div>
+        <div class="chip-group" id="filter-chips">
+          <button class="chip active" data-filter="all">Alle</button>
+          <button class="chip" data-filter="doubles">Doppelt</button>
+          <button class="chip" data-filter="pokemon">Pokémon</button>
+          <button class="chip" data-filter="trainer">Trainer</button>
+          <button class="chip" data-filter="energy">Energie</button>
+        </div>
+      </div>
       <div id="card-grid"></div>
     </div>
 
@@ -110,6 +125,7 @@
       <h2 id="detail-name"></h2>
       <p id="detail-set"></p>
       <p id="detail-number"></p>
+      <p id="detail-meta"></p>
       <div id="detail-qty-row">
         <button id="detail-minus">−</button>
         <span id="detail-qty">1</span>

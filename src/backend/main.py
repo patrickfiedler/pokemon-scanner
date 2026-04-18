@@ -33,12 +33,13 @@ DB_PATH    = Path(__file__).parent.parent.parent / "data" / "cards.db"
 DEBUG_DIR  = Path(__file__).parent.parent.parent / "data" / "debug"
 IMAGE_DIR  = Path(__file__).parent.parent.parent / "data" / "card_images"
 STATIC_DIR = Path(__file__).parent.parent / "frontend" / "static"
+TCGDEX_BASE = "https://api.tcgdex.net/v2"
 
 DEBUG_DIR.mkdir(parents=True, exist_ok=True)
 IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def init_collection_db() -> None:
+def init_db() -> None:
     conn = sqlite3.connect(DB_PATH)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS collection (
@@ -49,11 +50,85 @@ def init_collection_db() -> None:
             PRIMARY KEY (user_id, card_id)
         )
     """)
+    # Card detail columns populated lazily on first scan/add
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(cards)")}
+    for col, typedef in [
+        ("category",       "TEXT"),
+        ("hp",             "INTEGER"),
+        ("types",          "TEXT"),
+        ("rarity",         "TEXT"),
+        ("stage",          "TEXT"),
+        ("description",    "TEXT"),
+        ("dex_id",         "TEXT"),
+        ("attacks",        "TEXT"),
+        ("variants",       "TEXT"),
+        ("detail_fetched", "INTEGER DEFAULT 0"),
+    ]:
+        if col not in existing:
+            conn.execute(f"ALTER TABLE cards ADD COLUMN {col} {typedef}")
     conn.commit()
     conn.close()
 
 
-init_collection_db()
+init_db()
+
+
+def _tcgdex_enrich(conn: sqlite3.Connection, card_id: str) -> None:
+    """Fetch full card detail from TCGdex and cache it in the DB.
+
+    Runs at most once per card (detail_fetched flag). Silent fallback:
+    if TCGdex is unavailable the card still works with basic data.
+    """
+    row = conn.execute(
+        "SELECT detail_fetched FROM cards WHERE id = ?", (card_id,)
+    ).fetchone()
+    if row is None or row["detail_fetched"]:
+        return
+    try:
+        url = f"{TCGDEX_BASE}/en/cards/{card_id}"
+        with urllib.request.urlopen(url, timeout=8) as r:
+            data = json.loads(r.read())
+        if "status" in data:   # TCGdex error response (e.g. 404 JSON)
+            return
+    except Exception:
+        return  # TCGdex unavailable — card still added with basic data
+    conn.execute("""
+        UPDATE cards SET
+            category       = ?,
+            hp             = ?,
+            types          = ?,
+            rarity         = ?,
+            stage          = ?,
+            description    = ?,
+            dex_id         = ?,
+            attacks        = ?,
+            variants       = ?,
+            detail_fetched = 1
+        WHERE id = ?
+    """, (
+        data.get("category"),
+        data.get("hp"),
+        json.dumps(data.get("types"))    if data.get("types")    else None,
+        data.get("rarity"),
+        data.get("stage"),
+        data.get("description"),
+        json.dumps(data.get("dexId"))    if data.get("dexId")    else None,
+        json.dumps(data.get("attacks"))  if data.get("attacks")  else None,
+        json.dumps(data.get("variants")) if data.get("variants") else None,
+        card_id,
+    ))
+    conn.commit()
+
+
+def _parse_json_fields(card: dict) -> dict:
+    """Parse JSON text fields (types, attacks, variants, dex_id) into Python objects."""
+    for field in ("types", "attacks", "variants", "dex_id"):
+        if card.get(field) and isinstance(card[field], str):
+            try:
+                card[field] = json.loads(card[field])
+            except Exception:
+                card[field] = None
+    return card
 
 # ---------------------------------------------------------------------------
 # Auth — middleware covers ALL requests including static files
@@ -251,12 +326,10 @@ def enrich_with_set_name(matches: list[dict]) -> list[dict]:
         conn.close()
     for m in matches:
         s = sets.get(m["set_id"], {})
-        # Best set name: German > English > raw ID
         m["set_name"] = s.get("name_de") or s.get("name_en") or s.get("name_it") or s.get("name_fr") or m["set_id"]
-        # Best card name: German > English > Italian > Japanese
         m["name"] = m.get("name_de") or m.get("name_en") or m.get("name_it") or m.get("name_fr") or m.get("name_ja") or "?"
-        # Route image through local cache endpoint
         m["image_small"] = f"/card-image/{m['id']}" if m.get("image") else None
+        _parse_json_fields(m)
     return matches
 
 
@@ -302,11 +375,13 @@ def get_card(card_id: str, _=Depends(require_auth)):
     conn = get_db()
     try:
         row = conn.execute("SELECT * FROM cards WHERE id = ?", (card_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "Card not found")
+        _tcgdex_enrich(conn, card_id)
+        row = conn.execute("SELECT * FROM cards WHERE id = ?", (card_id,)).fetchone()
     finally:
         conn.close()
-    if row is None:
-        raise HTTPException(404, "Card not found")
-    return dict(row)
+    return _parse_json_fields(dict(row))
 
 
 @app.get("/card-image/{card_id}")
@@ -390,6 +465,8 @@ def get_collection_item(user_id: str, card_id: str, _=Depends(require_auth)):
 def add_to_collection(user_id: str, card_id: str, _=Depends(require_auth)):
     conn = get_db()
     try:
+        # Lazy enrichment on first add — silent fallback if TCGdex is unavailable
+        _tcgdex_enrich(conn, card_id)
         conn.execute(
             """INSERT INTO collection (user_id, card_id, quantity)
                VALUES (?, ?, 1)

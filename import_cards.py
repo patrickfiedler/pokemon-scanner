@@ -149,6 +149,36 @@ def fetch_pokeapi_names(slug: str) -> dict[str, str]:
     }
 
 
+def store_card_detail(conn: sqlite3.Connection, card_id: str, data: dict) -> None:
+    """Write enriched card fields from a TCGdex /en/cards/{id} response."""
+    conn.execute("""
+        UPDATE cards SET
+            category       = ?,
+            hp             = ?,
+            types          = ?,
+            rarity         = ?,
+            stage          = ?,
+            description    = ?,
+            dex_id         = ?,
+            attacks        = ?,
+            variants       = ?,
+            detail_fetched = 1
+        WHERE id = ?
+    """, (
+        data.get("category"),
+        data.get("hp"),
+        json.dumps(data.get("types"))   if data.get("types")   else None,
+        data.get("rarity"),
+        data.get("stage"),
+        data.get("description"),
+        json.dumps(data.get("dexId"))   if data.get("dexId")   else None,
+        json.dumps(data.get("attacks")) if data.get("attacks") else None,
+        json.dumps(data.get("variants"))if data.get("variants")else None,
+        card_id,
+    ))
+    conn.commit()
+
+
 # ---------------------------------------------------------------------------
 # Database
 # ---------------------------------------------------------------------------
@@ -189,9 +219,21 @@ def init_db(conn: sqlite3.Connection) -> None:
         if col not in existing:
             conn.execute(f"ALTER TABLE sets ADD COLUMN {col} TEXT")
     existing = {row[1] for row in conn.execute("PRAGMA table_info(cards)")}
-    for col in ("name_fr",):
+    for col, typedef in [
+        ("name_fr",        "TEXT"),
+        ("category",       "TEXT"),
+        ("hp",             "INTEGER"),
+        ("types",          "TEXT"),
+        ("rarity",         "TEXT"),
+        ("stage",          "TEXT"),
+        ("description",    "TEXT"),
+        ("dex_id",         "TEXT"),
+        ("attacks",        "TEXT"),
+        ("variants",       "TEXT"),
+        ("detail_fetched", "INTEGER DEFAULT 0"),
+    ]:
         if col not in existing:
-            conn.execute(f"ALTER TABLE cards ADD COLUMN {col} TEXT")
+            conn.execute(f"ALTER TABLE cards ADD COLUMN {col} {typedef}")
     conn.commit()
 
 
@@ -201,9 +243,10 @@ def init_db(conn: sqlite3.Connection) -> None:
 
 def main() -> None:
     import sys
-    force = "--force" in sys.argv
+    force  = "--force"  in sys.argv
+    enrich = "--enrich" in sys.argv
     if "-h" in sys.argv or "--help" in sys.argv:
-        print("""Usage: python import_cards.py [--force] [-h]
+        print("""Usage: python import_cards.py [--force] [--enrich] [-h]
 
 Imports Pokémon TCG card data into the local SQLite database.
 
@@ -215,6 +258,9 @@ Options:
   (none)    Incremental: skip sets whose card count hasn't changed.
             PokeAPI only runs for newly added/updated sets.
   --force   Full re-import of all sets (slow, ~5-10 min).
+  --enrich  Fetch full card details (hp, types, attacks…) for all collection
+            cards that are missing detail data. Run this after TCGdex was
+            temporarily unavailable during scanning.
   -h        Show this help message.
 
 DB: """ + str(DB_PATH))
@@ -223,6 +269,34 @@ DB: """ + str(DB_PATH))
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     init_db(conn)
+
+    # --- --enrich mode: backfill detail data for collection cards ---
+    if enrich:
+        rows = conn.execute("""
+            SELECT DISTINCT c.id FROM cards c
+            JOIN collection col ON c.id = col.card_id
+            WHERE c.detail_fetched = 0 OR c.detail_fetched IS NULL
+        """).fetchall()
+        total = len(rows)
+        if total == 0:
+            print("All collection cards already have detail data.")
+        else:
+            print(f"Enriching {total} collection cards with TCGdex detail data…")
+            ok = 0
+            for i, row in enumerate(rows, 1):
+                card_id = row[0]
+                print(f"  [{i}/{total}] {card_id}", end="", flush=True)
+                data = fetch_json(f"{BASE_URL}/en/cards/{card_id}")
+                if data and "status" not in data:
+                    store_card_detail(conn, card_id, data)
+                    print(" ✓")
+                    ok += 1
+                else:
+                    print(" ✗ (not found or unavailable)")
+                time.sleep(0.1)
+            print(f"\nDone: {ok}/{total} cards enriched.")
+        conn.close()
+        return
 
     # Load existing set totals to enable skip logic
     known_sets: dict[str, int] = {

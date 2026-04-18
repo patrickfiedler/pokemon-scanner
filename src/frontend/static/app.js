@@ -5,6 +5,16 @@ let profiles = [];
 let activeProfile = null;  // {id, name, color}
 let currentCard = null;    // card shown in scan result
 let detailCard = null;     // card shown in detail overlay
+let allCards = [];         // full collection for current profile
+let sortMode = "newest";
+let filterMode = "all";
+
+const TYPE_DE = {
+  Grass: "Pflanze", Fire: "Feuer", Water: "Wasser",
+  Lightning: "Blitz", Psychic: "Psycho", Fighting: "Kampf",
+  Darkness: "Dunkel", Metal: "Metall", Dragon: "Drache",
+  Colorless: "Farblos", Fairy: "Fee",
+};
 
 // ── DOM refs ─────────────────────────────────────────────────
 const video         = document.getElementById("video");
@@ -49,6 +59,7 @@ const detailRemove  = document.getElementById("detail-remove-btn");
 const detailConfirm = document.getElementById("detail-confirm");
 const detailYes     = document.getElementById("detail-confirm-yes");
 const detailNo      = document.getElementById("detail-confirm-no");
+const detailMeta    = document.getElementById("detail-meta");
 
 // Scan-again buttons (there are three — one per result state)
 ["scan-again-btn","scan-again-btn-2","scan-again-btn-3"].forEach(id => {
@@ -294,14 +305,45 @@ async function loadCollection() {
   if (!activeProfile) return;
   cardGrid.innerHTML = '<div style="padding:1rem;color:#888">Wird geladen…</div>';
   try {
-    const res  = await fetch(`/collection/${activeProfile.id}`);
-    const cards = await res.json();
-    collectionCount.textContent = `${activeProfile.name} · ${cards.length} Karten`;
-    renderGrid(cards);
+    const res = await fetch(`/collection/${activeProfile.id}`);
+    allCards = await res.json();
+    collectionCount.textContent = `${activeProfile.name} · ${allCards.length} Karten`;
+    applyChips();
   } catch (err) {
     cardGrid.innerHTML = `<div style="padding:1rem;color:#f88">Fehler: ${err.message}</div>`;
   }
 }
+
+function applyChips() {
+  let cards = [...allCards];
+  if (filterMode === "doubles")  cards = cards.filter(c => c.quantity > 1);
+  else if (filterMode === "pokemon") cards = cards.filter(c => c.category === "Pokemon");
+  else if (filterMode === "trainer") cards = cards.filter(c => c.category === "Trainer");
+  else if (filterMode === "energy")  cards = cards.filter(c => c.category === "Energy");
+  if (sortMode === "name-asc")  cards.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  else if (sortMode === "name-desc") cards.sort((a, b) => (b.name || "").localeCompare(a.name || ""));
+  else if (sortMode === "quantity")  cards.sort((a, b) => b.quantity - a.quantity);
+  // "newest" keeps server order (added_at DESC)
+  renderGrid(cards);
+}
+
+document.querySelectorAll("#sort-chips .chip").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#sort-chips .chip").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    sortMode = btn.dataset.sort;
+    applyChips();
+  });
+});
+
+document.querySelectorAll("#filter-chips .chip").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#filter-chips .chip").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    filterMode = btn.dataset.filter;
+    applyChips();
+  });
+});
 
 function renderGrid(cards) {
   cardGrid.innerHTML = "";
@@ -347,7 +389,15 @@ function openDetail(card) {
   detailNumber.textContent = "Nummer: " + card.number;
   detailQty.textContent    = card.quantity;
   detailConfirm.hidden     = true;
-  detailOverlay.hidden     = false;
+
+  const parts = [];
+  if (card.hp) parts.push(`❤️ ${card.hp} KP`);
+  if (card.types?.length) parts.push(card.types.map(t => TYPE_DE[t] || t).join(", "));
+  if (card.rarity) parts.push(card.rarity);
+  if (card.stage)  parts.push(card.stage);
+  detailMeta.textContent = parts.join(" · ");
+
+  detailOverlay.hidden = false;
 }
 
 detailClose.addEventListener("click", () => { detailOverlay.hidden = true; });
@@ -367,6 +417,7 @@ detailMinus.addEventListener("click", async () => {
   const { quantity } = await res.json();
   if (quantity === 0) {
     detailOverlay.hidden = true;
+    allCards = allCards.filter(c => c.id !== detailCard.id);
     removeGridCard(detailCard.id);
     updateCollectionCount(-1);
   } else {
@@ -385,6 +436,7 @@ detailYes.addEventListener("click", async () => {
     await fetch(`/collection/${activeProfile.id}/${detailCard.id}/remove`, { method: "POST" });
   }
   detailOverlay.hidden = true;
+  allCards = allCards.filter(c => c.id !== detailCard.id);
   removeGridCard(detailCard.id);
   updateCollectionCount(-1);
 });
