@@ -206,6 +206,7 @@ captureBtn.addEventListener("click", async () => {
   const vf = document.getElementById("viewfinder");
   const vfAspect = vf.offsetWidth / vf.offsetHeight;
   const vidW = video.videoWidth, vidH = video.videoHeight;
+  if (!vidW || !vidH) { showError("Kamera noch nicht bereit. Bitte kurz warten."); return; }
   const vidAspect = vidW / vidH;
   let sx, sy, sw, sh;
   if (vidAspect > vfAspect) {
@@ -218,6 +219,7 @@ captureBtn.addEventListener("click", async () => {
   canvas.width = sw; canvas.height = sh;
   canvas.getContext("2d").drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
   canvas.toBlob(async (blob) => {
+    if (!blob) { showError("Kamerabild konnte nicht gelesen werden. Bitte erneut versuchen."); return; }
     showLoading();
     try {
       const form = new FormData();
