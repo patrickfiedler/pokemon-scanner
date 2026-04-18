@@ -451,7 +451,7 @@ async def card_image(card_id: str):
 
 
 @app.get("/sets")
-def list_sets(_=Depends(require_auth)):
+def list_sets():
     conn = get_db()
     try:
         rows = conn.execute("SELECT * FROM sets ORDER BY name").fetchall()
@@ -461,7 +461,7 @@ def list_sets(_=Depends(require_auth)):
 
 
 @app.get("/profiles")
-def get_profiles(_=Depends(require_auth)):
+def get_profiles():
     return [{"id": str(i), "name": n, "color": c}
             for i, (n, c) in enumerate(zip(PROFILE_NAMES, PROFILE_COLORS))]
 
