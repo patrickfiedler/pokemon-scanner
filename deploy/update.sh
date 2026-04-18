@@ -133,8 +133,20 @@ run_migrations() {
 # Deployment steps
 # ---------------------------------------------------------------------------
 
+BEFORE_COMMIT=$(git -C "$APP_DIR" rev-parse HEAD)
+
 echo "=== Pulling latest code ==="
 git -C "$APP_DIR" pull --ff-only
+
+# Re-exec if update.sh itself changed in this pull.
+# --restarted flag prevents a second re-exec after the self-update.
+if [[ "${1:-}" != "--restarted" ]]; then
+    if ! git -C "$APP_DIR" diff --quiet "$BEFORE_COMMIT" HEAD -- deploy/update.sh; then
+        echo ""
+        echo "=== update.sh was updated — re-running new version ==="
+        exec bash "${BASH_SOURCE[0]}" --restarted
+    fi
+fi
 
 echo "=== Installing new dependencies (if any) ==="
 "$APP_DIR/venv/bin/pip" install -q -r "$APP_DIR/requirements.txt"
