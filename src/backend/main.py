@@ -486,16 +486,21 @@ async def scan(file: UploadFile = File(...)):
     roi_debug = preprocess_for_ocr(img)
     _, buf = cv2.imencode(".jpg", roi_debug)
     debug_image = base64.b64encode(buf).decode()
-    extracted = extract_number(raw_text)
 
     llm_used = False
     llm_name = None
-    if extracted is None and OVH_API_KEY:
+    extracted = None
+    if OVH_API_KEY:
+        # LLM first: more reliable and returns the Pokémon name for auto-disambiguation
         llm_result = extract_number_llm(data)
         if llm_result:
             llm_used = True
             llm_name = llm_result.get("name")
             extracted = (llm_result["number"], llm_result["total"], None)
+
+    # Tesseract fallback if LLM unavailable or returned nothing
+    if extracted is None:
+        extracted = extract_number(raw_text)
 
     if extracted is None:
         payload = {"matches": [], "error": "No collector number found"}
