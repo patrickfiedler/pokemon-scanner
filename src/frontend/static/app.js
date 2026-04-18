@@ -26,7 +26,7 @@ async function startCamera() {
     });
     video.srcObject = stream;
   } catch (err) {
-    showError("Camera not available: " + err.message);
+    showError("Kamera nicht verfügbar: " + err.message);
     captureBtn.disabled = true;
   }
 }
@@ -46,7 +46,7 @@ captureBtn.addEventListener("click", async () => {
       const data = await res.json();
       handleScanResult(data);
     } catch (err) {
-      showError("Network error: " + err.message);
+      showError("Netzwerkfehler: " + err.message);
     }
   }, "image/jpeg", 0.9);
 });
@@ -68,7 +68,7 @@ function handleScanResult(data) {
   }
 
   if (data.error || data.matches.length === 0) {
-    showError(data.error || "No card found. Try better lighting or hold the card steadier.");
+    showError(data.error || "Keine Karte gefunden. Versuch es mit besserer Beleuchtung oder halte die Karte ruhiger.");
     return;
   }
   if (data.matches.length === 1) {
@@ -82,10 +82,10 @@ function showCard(card) {
   hideAll();
   document.getElementById("card-name").textContent   = card.name;
   document.getElementById("card-set").textContent    = "Set: " + card.set_id.toUpperCase();
-  document.getElementById("card-number").textContent = "Number: " + card.number;
-  document.getElementById("card-hp").textContent     = card.hp ? "HP: " + card.hp : "";
-  document.getElementById("card-types").textContent  = card.types ? "Type: " + JSON.parse(card.types).join(", ") : "";
-  document.getElementById("card-rarity").textContent = card.rarity ? "Rarity: " + card.rarity : "";
+  document.getElementById("card-number").textContent = "Nummer: " + card.number;
+  document.getElementById("card-hp").textContent     = card.hp ? "KP: " + card.hp : "";
+  document.getElementById("card-types").textContent  = card.types ? "Typ: " + JSON.parse(card.types).join(", ") : "";
+  document.getElementById("card-rarity").textContent = card.rarity ? "Seltenheit: " + card.rarity : "";
 
   const img = document.getElementById("card-image");
   if (card.image_small) {
@@ -144,10 +144,10 @@ async function doManualLookup() {
   try {
     const res  = await fetch("/lookup?number=" + encodeURIComponent(val));
     const data = await res.json();
-    if (!res.ok) { showError(data.detail || "Lookup failed"); return; }
+    if (!res.ok) { showError(data.detail || "Suche fehlgeschlagen"); return; }
     handleScanResult(data);
   } catch (err) {
-    showError("Network error: " + err.message);
+    showError("Netzwerkfehler: " + err.message);
   }
 }
 

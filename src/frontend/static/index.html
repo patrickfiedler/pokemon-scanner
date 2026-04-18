@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="de">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -17,17 +17,17 @@
       <div id="viewfinder">
         <video id="video" autoplay playsinline muted></video>
         <div id="guide">
-          ↘ bottom-right corner of card here
+          ↘ Kartenecke unten rechts hier einpassen
         </div>
       </div>
-      <button id="capture-btn">📸 Scan Card</button>
+      <button id="capture-btn">📸 Karte scannen</button>
       <canvas id="canvas" hidden></canvas>
 
       <div id="manual-entry">
-        <p>or enter number manually</p>
+        <p>oder Nummer manuell eingeben</p>
         <div id="manual-row">
           <input id="manual-input" type="text" inputmode="numeric"
-                 placeholder="e.g. 045/198" autocomplete="off" />
+                 placeholder="z. B. 045/198" autocomplete="off" />
           <button id="manual-btn">🔍</button>
         </div>
       </div>
@@ -36,7 +36,7 @@
     <!-- Result -->
     <section id="result" hidden>
       <div id="loading" hidden>
-        <span class="spinner"></span> Scanning…
+        <span class="spinner"></span> Wird gescannt…
       </div>
       <div id="card-info" hidden>
         <img id="card-image" alt="Card image" />
@@ -50,7 +50,7 @@
         </div>
       </div>
       <div id="multi-match" hidden>
-        <p>Multiple cards found — which set is yours?</p>
+        <p>Mehrere Karten gefunden – aus welchem Set ist deine?</p>
         <ul id="match-list"></ul>
       </div>
       <div id="error-msg" hidden></div>
@@ -59,7 +59,7 @@
         <p>OCR raw: <code id="debug-ocr"></code></p>
         <img id="debug-image" alt="Preprocessed ROI" style="max-width:100%;margin-top:0.5rem;border-radius:6px"/>
       </details>
-      <button id="scan-again-btn">🔄 Scan Another</button>
+      <button id="scan-again-btn">🔄 Weitere Karte scannen</button>
     </section>
   </main>
 
