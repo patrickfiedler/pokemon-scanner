@@ -145,21 +145,51 @@ def extract_number(text: str) -> tuple[str, str] | None:
 # ---------------------------------------------------------------------------
 
 def cards_by_number(number: str, set_total: str | None = None) -> list[dict]:
-    """Look up cards by collector number, optionally filtered by set total."""
+    """Look up cards by collector number, filtered by set total when available."""
     n = number.lstrip("0") or "0"
     conn = get_db()
     try:
-        rows = conn.execute(
-            "SELECT * FROM cards WHERE CAST(number AS TEXT) = ? OR number = ?",
-            (n, n.zfill(3)),
-        ).fetchall()
-        matches = [dict(r) for r in rows]
+        if set_total:
+            # Filter to sets whose printed total matches — usually narrows to 1 result
+            rows = conn.execute(
+                """SELECT c.* FROM cards c
+                   JOIN sets s ON c.set_id = s.id
+                   WHERE (CAST(c.number AS TEXT) = ? OR c.number = ?)
+                     AND s.total = ?""",
+                (n, n.zfill(3), int(set_total)),
+            ).fetchall()
+            # Fall back to unfiltered if the total matched nothing (data gap)
+            if not rows:
+                rows = conn.execute(
+                    "SELECT * FROM cards WHERE CAST(number AS TEXT) = ? OR number = ?",
+                    (n, n.zfill(3)),
+                ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM cards WHERE CAST(number AS TEXT) = ? OR number = ?",
+                (n, n.zfill(3)),
+            ).fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()
-    # If we know the set total, filter to sets whose total matches
-    if set_total and matches:
-        # Join with sets table to check total — simpler: just keep all, it's few results
-        pass
+
+
+def enrich_with_set_name(matches: list[dict]) -> list[dict]:
+    """Add set_name to each card dict (avoids a second round-trip per card)."""
+    if not matches:
+        return matches
+    set_ids = list({m["set_id"] for m in matches})
+    conn = get_db()
+    try:
+        placeholders = ",".join("?" * len(set_ids))
+        rows = conn.execute(
+            f"SELECT id, name FROM sets WHERE id IN ({placeholders})", set_ids
+        ).fetchall()
+        names = {r["id"]: r["name"] for r in rows}
+    finally:
+        conn.close()
+    for m in matches:
+        m["set_name"] = names.get(m["set_id"], m["set_id"])
     return matches
 
 
@@ -183,7 +213,7 @@ async def scan(file: UploadFile = File(...), _=Depends(require_auth)):
         return {"ocr_raw": raw_text, "debug_image": debug_image, **payload}
 
     number, set_total = extracted
-    matches = cards_by_number(number, set_total)
+    matches = enrich_with_set_name(cards_by_number(number, set_total))
     payload = {"number": number, "set_total": set_total, "matches": matches}
     save_debug(img, roi, raw_text, payload)
     return {"ocr_raw": raw_text, "debug_image": debug_image, **payload}
@@ -196,7 +226,7 @@ def lookup(number: str, _=Depends(require_auth)):
     if result is None:
         raise HTTPException(400, "Invalid format. Use e.g. 45/198 or just 45")
     n, set_total = result
-    matches = cards_by_number(n, set_total)
+    matches = enrich_with_set_name(cards_by_number(n, set_total))
     return {"number": n, "set_total": set_total, "matches": matches}
 
 

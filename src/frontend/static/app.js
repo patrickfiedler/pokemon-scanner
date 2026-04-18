@@ -83,7 +83,7 @@ function handleScanResult(data) {
 function showCard(card) {
   hideAll();
   document.getElementById("card-name").textContent   = card.name;
-  document.getElementById("card-set").textContent    = "Set: " + card.set_id.toUpperCase();
+  document.getElementById("card-set").textContent    = "Set: " + (card.set_name || card.set_id.toUpperCase());
   document.getElementById("card-number").textContent = "Nummer: " + card.number;
   document.getElementById("card-hp").textContent     = card.hp ? "KP: " + card.hp : "";
   document.getElementById("card-types").textContent  = card.types ? "Typ: " + JSON.parse(card.types).join(", ") : "";
@@ -107,7 +107,7 @@ function showMultiMatch(matches) {
   matchList.innerHTML = "";
   matches.forEach(card => {
     const li = document.createElement("li");
-    li.textContent = `${card.name} — ${card.set_id.toUpperCase()} #${card.number}`;
+    li.textContent = `${card.name} — ${card.set_name || card.set_id.toUpperCase()} #${card.number}`;
     li.addEventListener("click", () => showCard(card));
     matchList.appendChild(li);
   });
