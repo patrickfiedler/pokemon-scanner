@@ -3,4 +3,4 @@ __pycache__/
 .env
 venv/
 data/pokemon-tcg-data/
-data/cards.db
+data/debug/

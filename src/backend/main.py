@@ -13,6 +13,7 @@ import os
 import re
 import secrets
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 
 import cv2
@@ -26,8 +27,11 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
-DB_PATH = Path(__file__).parent.parent.parent / "data" / "cards.db"
+DB_PATH    = Path(__file__).parent.parent.parent / "data" / "cards.db"
+DEBUG_DIR  = Path(__file__).parent.parent.parent / "data" / "debug"
 STATIC_DIR = Path(__file__).parent.parent / "frontend" / "static"
+
+DEBUG_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
 # Auth — middleware covers ALL requests including static files
@@ -85,6 +89,17 @@ def get_db() -> sqlite3.Connection:
 # ---------------------------------------------------------------------------
 # Image preprocessing + OCR
 # ---------------------------------------------------------------------------
+
+def save_debug(img: np.ndarray, roi: np.ndarray, ocr_raw: str, result: dict) -> None:
+    """Save original image, preprocessed ROI, and OCR result to data/debug/."""
+    ts = datetime.utcnow().strftime("%Y%m%dT%H%M%S%f")
+    base = DEBUG_DIR / ts
+    cv2.imwrite(str(base) + "_original.jpg", img)
+    cv2.imwrite(str(base) + "_roi.jpg", roi)
+    (base.parent / (base.name + "_result.json")).write_text(
+        json.dumps({"ocr_raw": ocr_raw, **result}, ensure_ascii=False, indent=2)
+    )
+
 
 def preprocess_for_ocr(img: np.ndarray) -> np.ndarray:
     """Crop bottom-right, enlarge, convert to high-contrast grayscale."""
@@ -157,21 +172,21 @@ async def scan(file: UploadFile = File(...), _=Depends(require_auth)):
     if img is None:
         raise HTTPException(400, "Could not decode image")
 
+    roi = preprocess_for_ocr(img)
     raw_text = ocr_image(img)
     debug_image = preprocess_to_jpeg(img)
-    result = extract_number(raw_text)
+    extracted = extract_number(raw_text)
 
-    if result is None:
-        return {"ocr_raw": raw_text, "debug_image": debug_image, "matches": [], "error": "No collector number found"}
+    if extracted is None:
+        payload = {"matches": [], "error": "No collector number found"}
+        save_debug(img, roi, raw_text, payload)
+        return {"ocr_raw": raw_text, "debug_image": debug_image, **payload}
 
-    number, set_total = result
-    return {
-        "ocr_raw": raw_text,
-        "debug_image": debug_image,
-        "number": number,
-        "set_total": set_total,
-        "matches": cards_by_number(number, set_total),
-    }
+    number, set_total = extracted
+    matches = cards_by_number(number, set_total)
+    payload = {"number": number, "set_total": set_total, "matches": matches}
+    save_debug(img, roi, raw_text, payload)
+    return {"ocr_raw": raw_text, "debug_image": debug_image, **payload}
 
 
 @app.get("/lookup")
