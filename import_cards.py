@@ -161,6 +161,23 @@ def init_db(conn: sqlite3.Connection) -> None:
 def main() -> None:
     import sys
     force = "--force" in sys.argv
+    if "-h" in sys.argv or "--help" in sys.argv:
+        print("""Usage: python import_cards.py [--force] [-h]
+
+Imports Pokémon TCG card data into the local SQLite database.
+
+Steps:
+  1. TCGdex  — fetches multilingual card/set names (de, en, fr, it, ja)
+  2. PokeAPI — fills in missing DE/FR/IT names via species lookup
+
+Options:
+  (none)    Incremental: skip sets whose card count hasn't changed.
+            PokeAPI only runs for newly added/updated sets.
+  --force   Full re-import of all sets (slow, ~5-10 min).
+  -h        Show this help message.
+
+DB: """ + str(DB_PATH))
+        sys.exit(0)
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
