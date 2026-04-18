@@ -1,0 +1,22 @@
+[Unit]
+Description=Pokemon Card Scanner
+After=network.target
+
+[Service]
+Type=simple
+User=pokemon-scanner
+Group=pokemon-scanner
+WorkingDirectory=/opt/pokemon-scanner
+EnvironmentFile=/opt/pokemon-scanner/.env
+ExecStart=/opt/pokemon-scanner/venv/bin/uvicorn src.backend.main:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/pokemon-scanner/data
+
+[Install]
+WantedBy=multi-user.target
