@@ -1,5 +1,8 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Ensure [hidden] attribute always wins over display rules in this file */
+[hidden] { display: none !important; }
+
 body {
   font-family: system-ui, sans-serif;
   background: #1a1a2e;
