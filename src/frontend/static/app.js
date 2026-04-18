@@ -99,7 +99,7 @@ function selectProfile(profile, save = true) {
   app.hidden = false;
   profileSwitch.textContent = `${profile.name} ▾`;
   profileSwitch.style.borderLeft = `4px solid ${profile.color}`;
-  startCamera();
+  loadCollection();
 }
 
 profileSwitch.addEventListener("click", () => {
@@ -108,6 +108,11 @@ profileSwitch.addEventListener("click", () => {
 });
 
 // ── Tabs ─────────────────────────────────────────────────────
+// Start on collection tab; camera only starts when scanner tab is opened.
+tabScanner.hidden    = true;
+tabCollection.hidden = false;
+loadCollection();
+
 tabBtns.forEach(btn => {
   btn.addEventListener("click", () => {
     const tab = btn.dataset.tab;
@@ -115,6 +120,7 @@ tabBtns.forEach(btn => {
     tabScanner.hidden    = tab !== "scanner";
     tabCollection.hidden = tab !== "collection";
     if (tab === "collection") loadCollection();
+    if (tab === "scanner" && !video.srcObject) startCamera();
   });
 });
 

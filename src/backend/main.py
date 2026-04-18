@@ -94,6 +94,7 @@ def _tcgdex_enrich(conn: sqlite3.Connection, card_id: str) -> None:
         return  # TCGdex unavailable — card still added with basic data
     conn.execute("""
         UPDATE cards SET
+            image          = COALESCE(?, image),
             category       = ?,
             hp             = ?,
             types          = ?,
@@ -106,6 +107,7 @@ def _tcgdex_enrich(conn: sqlite3.Connection, card_id: str) -> None:
             detail_fetched = 1
         WHERE id = ?
     """, (
+        data.get("image"),
         data.get("category"),
         data.get("hp"),
         json.dumps(data.get("types"))    if data.get("types")    else None,
@@ -367,6 +369,15 @@ def lookup(number: str, _=Depends(require_auth)):
         raise HTTPException(400, "Invalid format. Use e.g. 45/198 or just 45")
     n, set_total, _ = result
     matches = enrich_with_set_name(cards_by_number(n, set_total))
+    # Enrich each match with TCGdex detail (fetches image if missing; no-op if already done)
+    if matches:
+        conn = get_db()
+        try:
+            for m in matches:
+                _tcgdex_enrich(conn, m["id"])
+        finally:
+            conn.close()
+        matches = enrich_with_set_name(cards_by_number(n, set_total))
     return {"number": n, "set_total": set_total, "matches": matches}
 
 

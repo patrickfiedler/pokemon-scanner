@@ -31,7 +31,7 @@
       <button id="profile-switch-btn"></button>
     </header>
 
-    <div id="tab-scanner">
+    <div id="tab-scanner" hidden>
       <!-- Left / top: camera -->
       <section id="scanner-panel">
         <div id="viewfinder">
@@ -88,7 +88,7 @@
     </div>
 
     <!-- Collection tab -->
-    <div id="tab-collection" hidden>
+    <div id="tab-collection">
       <div id="collection-header">
         <span id="collection-count">0 Karten</span>
       </div>
@@ -112,8 +112,8 @@
 
     <!-- Bottom tab bar -->
     <nav id="tab-bar">
-      <button class="tab active" data-tab="scanner">📸 Scanner</button>
-      <button class="tab" data-tab="collection">📚 Sammlung</button>
+      <button class="tab active" data-tab="collection">📚 Sammlung</button>
+      <button class="tab" data-tab="scanner">📸 Scanner</button>
     </nav>
   </div>
 
