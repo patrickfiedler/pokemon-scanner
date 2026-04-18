@@ -194,9 +194,9 @@ def enrich_with_set_name(matches: list[dict]) -> list[dict]:
     for m in matches:
         s = sets.get(m["set_id"], {})
         # Best set name: German > English > raw ID
-        m["set_name"] = s.get("name_de") or s.get("name_fr") or s.get("name_en") or m["set_id"]
+        m["set_name"] = s.get("name_de") or s.get("name_en") or s.get("name_it") or s.get("name_fr") or m["set_id"]
         # Best card name: German > English > Italian > Japanese
-        m["name"] = m.get("name_de") or m.get("name_fr") or m.get("name_en") or m.get("name_it") or m.get("name_ja") or "?"
+        m["name"] = m.get("name_de") or m.get("name_en") or m.get("name_it") or m.get("name_fr") or m.get("name_ja") or "?"
         # Expose image field (was image_small in old schema)
         m["image_small"] = m.get("image")
     return matches
