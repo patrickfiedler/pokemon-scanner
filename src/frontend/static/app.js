@@ -376,6 +376,14 @@ function renderGrid(cards) {
       img.src = card.image_small;
       img.alt = card.name;
       div.appendChild(img);
+
+      const displayName = card.name_de || card.name_en;
+      if (displayName) {
+        const label = document.createElement("div");
+        label.className = "grid-card-name";
+        label.textContent = displayName;
+        div.appendChild(label);
+      }
     }
 
     if (card.quantity > 1) {
@@ -384,11 +392,6 @@ function renderGrid(cards) {
       badge.textContent = card.quantity + "×";
       div.appendChild(badge);
     }
-
-    const label = document.createElement("div");
-    label.className = "grid-card-name";
-    label.textContent = card.name;
-    div.appendChild(label);
 
     div.addEventListener("click", () => openDetail(card));
     cardGrid.appendChild(div);

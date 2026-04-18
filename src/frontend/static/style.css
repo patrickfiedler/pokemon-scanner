@@ -304,10 +304,14 @@ button:active { opacity: 0.8; }
 }
 
 .grid-card-name {
-  position: absolute; bottom: 0; left: 0; right: 0;
-  background: rgba(0,0,0,0.7);
-  font-size: 0.65rem; padding: 3px 5px;
+  position: absolute;
+  top: 8%; left: 0; right: 0;
+  background: linear-gradient(rgba(0,0,0,0.72), rgba(0,0,0,0));
+  font-size: 0.7rem; font-weight: bold;
+  padding: 4px 8px 10px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+  pointer-events: none;
 }
 
 /* ── Card detail overlay ─────────────────────────────────── */
