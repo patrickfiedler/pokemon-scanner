@@ -21,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 
 import cv2
+import httpx
 import numpy as np
 import pytesseract
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -35,6 +36,13 @@ DEBUG_DIR  = Path(__file__).parent.parent.parent / "data" / "debug"
 IMAGE_DIR  = Path(__file__).parent.parent.parent / "data" / "card_images"
 STATIC_DIR = Path(__file__).parent.parent / "frontend" / "static"
 TCGDEX_BASE = "https://api.tcgdex.net/v2"
+
+# Vision LLM (Mistral Small 3.2 on OVHcloud AI Endpoints) — optional fallback
+OVH_API_KEY = os.getenv("OVH_API_KEY", "")
+_OVH_LLM_URL = (
+    "https://mistral-small-3-2-24b-instruct-2506.endpoints.kepler.ai.cloud.ovh.net"
+    "/v1/chat/completions"
+)
 
 DEBUG_DIR.mkdir(parents=True, exist_ok=True)
 IMAGE_DIR.mkdir(parents=True, exist_ok=True)
@@ -281,6 +289,62 @@ def extract_number(text: str) -> tuple[str, str, str | None]:
 
 
 # ---------------------------------------------------------------------------
+# Vision LLM fallback
+# ---------------------------------------------------------------------------
+
+def _resize_for_llm(jpg_bytes: bytes, max_width: int = 800) -> bytes:
+    """Resize image to max_width px wide (keeps aspect ratio) to reduce token cost."""
+    arr = np.frombuffer(jpg_bytes, np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    h, w = img.shape[:2]
+    if w > max_width:
+        scale = max_width / w
+        img = cv2.resize(img, (max_width, int(h * scale)), interpolation=cv2.INTER_AREA)
+    _, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    return buf.tobytes()
+
+
+def extract_number_llm(jpg_bytes: bytes) -> tuple[str, str, None] | None:
+    """Ask Mistral Small 3.2 (vision) for the collector number. Returns same
+    tuple as extract_number(), or None if unavailable / unreadable."""
+    if not OVH_API_KEY:
+        return None
+    b64 = base64.b64encode(_resize_for_llm(jpg_bytes)).decode()
+    try:
+        resp = httpx.post(
+            _OVH_LLM_URL,
+            headers={"Authorization": f"Bearer {OVH_API_KEY}"},
+            json={
+                "model": "Mistral-Small-3.2-24B-Instruct-2506",
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url",
+                         "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                        {"type": "text",
+                         "text": (
+                             "This is a Pokémon trading card. "
+                             "What is the collector number printed at the bottom? "
+                             "Reply with ONLY the number in format X/Y, e.g. '7/15'. "
+                             "If you cannot read it, reply with 'unknown'."
+                         )},
+                    ],
+                }],
+                "max_tokens": 20,
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        text = resp.json()["choices"][0]["message"]["content"].strip()
+        m = NUMBER_RE.search(text)
+        if m:
+            return m.group(1).lstrip("0") or "0", m.group(2), None
+    except Exception as exc:
+        print(f"[LLM] error: {exc}")
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
@@ -377,6 +441,12 @@ async def scan(file: UploadFile = File(...)):
     debug_image = base64.b64encode(buf).decode()
     extracted = extract_number(raw_text)
 
+    llm_used = False
+    if extracted is None and OVH_API_KEY:
+        extracted = extract_number_llm(data)
+        if extracted:
+            llm_used = True
+
     if extracted is None:
         payload = {"matches": [], "error": "No collector number found"}
         save_debug(img, roi, raw_text, payload)
@@ -384,7 +454,8 @@ async def scan(file: UploadFile = File(...)):
 
     number, set_total, set_code = extracted
     matches = enrich_with_set_name(cards_by_number(number, set_total, set_code))
-    payload = {"number": number, "set_total": set_total, "set_code": set_code, "matches": matches}
+    payload = {"number": number, "set_total": set_total, "set_code": set_code,
+               "matches": matches, "llm_used": llm_used}
     save_debug(img, roi, raw_text, payload)
     return {"ocr_raw": raw_text, "debug_image": debug_image, **payload}
 

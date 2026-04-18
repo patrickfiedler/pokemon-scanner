@@ -106,6 +106,13 @@ Steps:
 
 No app restart needed after import — backend opens DB fresh per request.
 
+## Python Environment
+
+- **Always use the project venv**: `venv/` in the project root (created by `deploy/setup.sh`)
+- **Do NOT use bare `pip install`** — always use `venv/bin/pip` or activate the venv first
+- To add a dependency: add to `requirements.txt`, then run `venv/bin/pip install -r requirements.txt`
+- If `venv/` doesn't exist locally (it lives on the VPS), ask the user to install system-wide or create a local venv
+
 ## Commands
 
 ```bash
