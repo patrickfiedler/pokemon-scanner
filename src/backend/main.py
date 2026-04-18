@@ -380,21 +380,19 @@ def extract_number_llm(jpg_bytes: bytes) -> dict | None:
 
 
 def _detect_energy_type_llm(img: np.ndarray) -> str | None:
-    """Ask the LLM what energy symbol it sees in the card center.
+    """Ask the LLM what energy type it sees in the full card image.
 
     Used when the card name ('Basis-Energie') doesn't reveal the type.
-    Sends a center crop and asks for fire/fist/lightning etc.
+    Sends the full card so the LLM can use both symbol shape and background color.
     Returns a canonical energy name or None.
     """
     if not _llm_enabled:
         return None
-    h, w = img.shape[:2]
-    center = img[int(h * 0.20):int(h * 0.80), int(w * 0.10):int(w * 0.90)]
-    target_w = 800
-    scale = target_w / center.shape[1]
-    center = cv2.resize(center, (target_w, max(1, int(center.shape[0] * scale))),
-                        interpolation=cv2.INTER_CUBIC)
-    _, buf = cv2.imencode(".jpg", center, [cv2.IMWRITE_JPEG_QUALITY, 90])
+    target_w = 600
+    scale = target_w / img.shape[1]
+    resized = cv2.resize(img, (target_w, max(1, int(img.shape[0] * scale))),
+                         interpolation=cv2.INTER_CUBIC)
+    _, buf = cv2.imencode(".jpg", resized, [cv2.IMWRITE_JPEG_QUALITY, 85])
     b64 = base64.b64encode(buf.tobytes()).decode()
     try:
         resp = httpx.post(
@@ -409,11 +407,11 @@ def _detect_energy_type_llm(img: np.ndarray) -> str | None:
                          "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
                         {"type": "text",
                          "text": (
-                             "This is the center of a Pokémon Basic Energy card. "
-                             "Use BOTH the dominant background color AND the energy symbol to identify the type. "
-                             "Color hints: red/orange=fire, blue=water, green=grass, yellow=lightning, "
-                             "orange-brown=fighting, pink/purple=psychic, black=darkness, "
-                             "silver/grey=metal, multicolor=dragon, pink-pastel=fairy, white=colorless. "
+                             "This is a Pokémon Basic Energy card. "
+                             "Look at the large central energy symbol AND the card's background color "
+                             "to identify the type. Symbols: flame=fire, water drop=water, leaf=grass, "
+                             "bolt=lightning, fist=fighting, eye/swirl=psychic, crescent/dark=darkness, "
+                             "gear/orb=metal, claw=dragon, star=fairy, plain=colorless. "
                              "Reply with ONLY one word from: fire, water, grass, lightning, fighting, "
                              "psychic, darkness, metal, dragon, fairy, colorless. No other words."
                          )},
