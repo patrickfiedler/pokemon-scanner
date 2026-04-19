@@ -56,13 +56,16 @@ let detailCard = null;     // card shown in detail overlay
 let allCards = [];         // full collection for current profile
 let sortMode = "newest";
 let filterMode = "all";
+let typeFilter = null;   // null = no type filter, or e.g. "Fire"
 
 const TYPE_DE = {
   Grass: "Pflanze", Fire: "Feuer", Water: "Wasser",
-  Lightning: "Blitz", Psychic: "Psycho", Fighting: "Kampf",
-  Darkness: "Dunkel", Metal: "Metall", Dragon: "Drache",
+  Lightning: "Elektro", Psychic: "Psycho", Fighting: "Kampf",
+  Darkness: "Finsternis", Metal: "Metall", Dragon: "Drache",
   Colorless: "Farblos", Fairy: "Fee",
 };
+// Ordered list for type filter chips (matches official German card order)
+const TYPE_ORDER = ["Grass","Fire","Water","Lightning","Psychic","Fighting","Darkness","Metal","Colorless","Fairy","Dragon"];
 
 // ── DOM refs ─────────────────────────────────────────────────
 const video         = document.getElementById("video");
@@ -391,6 +394,7 @@ async function loadCollection() {
     const res = await apiFetch(`/collection/${activeProfile.id}`);
     allCards = await res.json();
     collectionCount.textContent = `${activeProfile.name} · ${allCards.length} Karten`;
+    buildTypeChips();
     applyChips();
   } catch (err) {
     cardGrid.innerHTML = `<div style="padding:1rem;color:#f88">Fehler: ${err.message}</div>`;
@@ -403,9 +407,12 @@ function applyChips() {
   else if (filterMode === "pokemon") cards = cards.filter(c => c.category === "Pokemon");
   else if (filterMode === "trainer") cards = cards.filter(c => c.category === "Trainer");
   else if (filterMode === "energy")  cards = cards.filter(c => c.category === "Energy");
+  if (typeFilter) cards = cards.filter(c => (c.types || []).includes(typeFilter));
   if (sortMode === "name-asc")  cards.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   else if (sortMode === "name-desc") cards.sort((a, b) => (b.name || "").localeCompare(a.name || ""));
   else if (sortMode === "quantity")  cards.sort((a, b) => b.quantity - a.quantity);
+  else if (sortMode === "hp-desc")   cards.sort((a, b) => (b.hp || 0) - (a.hp || 0));
+  else if (sortMode === "hp-asc")    cards.sort((a, b) => (a.hp || 0) - (b.hp || 0));
   // "newest" keeps server order (added_at DESC)
   renderGrid(cards);
 }
@@ -427,6 +434,36 @@ document.querySelectorAll("#filter-chips .chip").forEach(btn => {
     applyChips();
   });
 });
+
+function buildTypeChips() {
+  const bar = document.getElementById("type-chips");
+  // Determine which types actually appear in the collection
+  const present = new Set(allCards.flatMap(c => c.types || []));
+  bar.innerHTML = "";
+  const allBtn = document.createElement("button");
+  allBtn.className = "chip" + (typeFilter === null ? " active" : "");
+  allBtn.textContent = "Alle";
+  allBtn.addEventListener("click", () => {
+    typeFilter = null;
+    bar.querySelectorAll(".chip").forEach(b => b.classList.remove("active"));
+    allBtn.classList.add("active");
+    applyChips();
+  });
+  bar.appendChild(allBtn);
+  TYPE_ORDER.filter(t => present.has(t)).forEach(t => {
+    const btn = document.createElement("button");
+    btn.className = "chip" + (typeFilter === t ? " active" : "");
+    btn.textContent = TYPE_DE[t] || t;
+    btn.addEventListener("click", () => {
+      typeFilter = t;
+      bar.querySelectorAll(".chip").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      applyChips();
+    });
+    bar.appendChild(btn);
+  });
+  bar.hidden = present.size === 0;
+}
 
 function renderGrid(cards) {
   cardGrid.innerHTML = "";
