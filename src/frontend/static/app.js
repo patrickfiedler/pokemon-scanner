@@ -240,6 +240,10 @@ captureBtn.addEventListener("click", async () => {
       const form = new FormData();
       form.append("file", blob, "card.jpg");
       const res = await apiFetch("/scan", { method: "POST", body: form });
+      if (!res.ok) {
+        showError("Serverfehler beim Scannen. Bitte nochmal versuchen.");
+        return;
+      }
       const data = await res.json();
       handleScanResult(data);
     } catch (err) {
@@ -257,7 +261,12 @@ function handleScanResult(data) {
   }
   lastScanId = data.scan_id || null;
   if (data.error || !data.matches || data.matches.length === 0) {
-    showError(data.error || "Keine Karte gefunden. Bessere Beleuchtung oder Karte ruhiger halten.");
+    const ERROR_MSG = {
+      no_ocr_output:   "Kein Text erkannt – bessere Beleuchtung oder Karte ruhiger halten.",
+      no_number_found: "Nummer nicht gefunden – Karte so halten, dass die Nummer unten im Rahmen liegt.",
+      no_match:        `Karte ${data.number ? `(${data.number}) ` : ""}nicht in der Datenbank gefunden.`,
+    };
+    showError(ERROR_MSG[data.error] || "Keine Karte gefunden. Nochmal versuchen.");
     return;
   }
   if (data.matches.length === 1) {

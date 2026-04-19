@@ -365,6 +365,8 @@ def extract_number_llm(jpg_bytes: bytes) -> dict | None:
         resp.raise_for_status()
         text = resp.json()["choices"][0]["message"]["content"].strip()
         print(f"[LLM] response: {text!r}")
+        # Strip markdown code fences if the model adds them (e.g. ```json...```)
+        text = re.sub(r"^```[a-z]*\s*", "", text, flags=re.MULTILINE).strip().strip("`").strip()
         parsed = json.loads(text)
         number_str = parsed.get("number") or ""
         m = NUMBER_RE.search(number_str)
@@ -709,7 +711,7 @@ def cards_by_number(number: str, set_total: str | None = None, set_code: str | N
 
         # Fall back to number only
         rows = conn.execute(
-            f"SELECT * FROM cards WHERE {num_clause}",
+            f"SELECT * FROM cards c WHERE {num_clause}",
             num_args,
         ).fetchall()
         return [dict(r) for r in rows]
@@ -810,7 +812,9 @@ async def scan(file: UploadFile = File(...)):
         matches = _best_energy_card(enrich_with_set_name(cards_by_name(canonical)))
         number, set_total, set_code = "?", None, None
     elif extracted is None:
-        payload = {"matches": [], "error": "No collector number found"}
+        error_code = "no_ocr_output" if not raw_text.strip() else "no_number_found"
+        print(f"[Scan] result={error_code} ocr_len={len(raw_text.strip())}")
+        payload = {"matches": [], "error": error_code}
         scan_id = save_debug(img, roi, raw_text, payload)
         return {"ocr_raw": raw_text, "debug_image": debug_image, "scan_id": scan_id, **payload}
     else:
@@ -820,10 +824,15 @@ async def scan(file: UploadFile = File(...)):
         if llm_name and len(matches) > 1:
             matches = _filter_by_name(matches, llm_name)
 
+    match_count = len(matches)
+    print(f"[Scan] result={'ok' if match_count else 'no_match'} number={number!r} "
+          f"set_total={set_total!r} set_code={set_code!r} matches={match_count}")
     payload = {"number": number, "set_total": set_total, "set_code": set_code,
                "matches": matches, "llm_used": llm_used, "llm_name": llm_name,
                "energy_canonical": canonical if energy_method else None,
                "energy_method": energy_method}
+    if not matches and not energy_method:
+        payload["error"] = "no_match"
     scan_id = save_debug(img, roi, raw_text, payload)
     return {"ocr_raw": raw_text, "debug_image": debug_image, "scan_id": scan_id, **payload}
 
