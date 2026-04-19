@@ -513,11 +513,31 @@ function openDetail(card) {
   detailQty.textContent    = card.quantity;
   detailConfirm.hidden     = true;
 
+const RARITY_DE = {
+  "Common": "Gewöhnlich", "Uncommon": "Ungewöhnlich", "Rare": "Selten",
+  "Rare Holo": "Selten Holo", "Rare Holo EX": "Selten Holo EX",
+  "Rare Holo GX": "Selten Holo GX", "Rare Holo V": "Selten Holo V",
+  "Rare Holo VMAX": "Selten Holo VMAX", "Rare Holo VSTAR": "Selten Holo VSTAR",
+  "Rare Ultra": "Ultra Selten", "Rare Secret": "Geheimselten",
+  "Rare Rainbow": "Regenbogen Selten", "Rare Shiny": "Schillernde Seltenheit",
+  "Amazing Rare": "Erstaunlich Selten", "Illustration Rare": "Illustration Selten",
+  "Special Illustration Rare": "Spezial Illustration Selten",
+  "Hyper Rare": "Hyper Selten", "Ultra Rare": "Ultra Selten",
+  "Double Rare": "Doppelt Selten", "Trainer Gallery Rare Holo": "Trainer-Galerie Holo",
+  "Promo": "Promo",
+};
+const STAGE_DE = {
+  "Basic": "Basis", "Stage 1": "Stufe 1", "Stage 2": "Stufe 2",
+  "MEGA": "MEGA", "BREAK": "BREAK", "GX": "GX", "EX": "EX",
+  "V": "V", "VMAX": "VMAX", "VSTAR": "VSTAR",
+  "Level-Up": "Level-Up", "Restored": "Restauriert",
+};
+
   const parts = [];
   if (card.hp) parts.push(`❤️ ${card.hp} KP`);
   if (card.types?.length) parts.push(card.types.map(t => TYPE_DE[t] || t).join(", "));
-  if (card.rarity) parts.push(card.rarity);
-  if (card.stage)  parts.push(card.stage);
+  if (card.rarity) parts.push(RARITY_DE[card.rarity] || card.rarity);
+  if (card.stage)  parts.push(STAGE_DE[card.stage]   || card.stage);
   detailMeta.textContent = parts.join(" · ");
 
   detailOverlay.hidden = false;
