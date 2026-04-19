@@ -719,6 +719,37 @@ def cards_by_number(number: str, set_total: str | None = None, set_code: str | N
         conn.close()
 
 
+def _filter_by_name(matches: list[dict], name: str) -> list[dict]:
+    """Narrow multiple matches by comparing LLM-read name against card names.
+
+    Tries exact, then prefix, then substring match (case-insensitive) across all
+    language columns. Returns original list if nothing matches (safe fallback).
+    """
+    if not name or not matches:
+        return matches
+    name_lower = name.strip().lower()
+    lang_keys = ("name_de", "name_en", "name_it", "name_fr", "name_ja")
+    for mode in ("exact", "prefix", "substr"):
+        filtered = []
+        for m in matches:
+            for key in lang_keys:
+                val = (m.get(key) or "").lower()
+                if not val:
+                    continue
+                if mode == "exact" and val == name_lower:
+                    filtered.append(m)
+                    break
+                if mode == "prefix" and val.startswith(name_lower):
+                    filtered.append(m)
+                    break
+                if mode == "substr" and name_lower in val:
+                    filtered.append(m)
+                    break
+        if filtered:
+            return filtered
+    return matches
+
+
 def enrich_with_set_name(matches: list[dict]) -> list[dict]:
     """Add set_name_* fields and compute best display name for each card."""
     if not matches:
