@@ -53,6 +53,7 @@ let profiles = [];
 let activeProfile = null;  // {id, name, color}
 let currentCard = null;    // card shown in scan result
 let detailCard = null;     // card shown in detail overlay
+let lastScanId = null;     // scan_id from last /scan call (for debug correlation)
 let allCards = [];         // full collection for current profile
 let sortMode = "newest";
 let filterMode = "all";
@@ -254,6 +255,7 @@ function handleScanResult(data) {
   if (data.debug_image) {
     debugImage.src = "data:image/jpeg;base64," + data.debug_image;
   }
+  lastScanId = data.scan_id || null;
   if (data.error || !data.matches || data.matches.length === 0) {
     showError(data.error || "Keine Karte gefunden. Bessere Beleuchtung oder Karte ruhiger halten.");
     return;
@@ -348,7 +350,9 @@ addBtn.addEventListener("click", async () => {
   if (!currentCard || !activeProfile) return;
   addBtn.disabled = true;
   try {
-    const res = await apiFetch(`/collection/${activeProfile.id}/${currentCard.id}/add`, { method: "POST" });
+    const url = `/collection/${activeProfile.id}/${currentCard.id}/add` +
+                (lastScanId ? `?scan_id=${encodeURIComponent(lastScanId)}` : "");
+    const res = await apiFetch(url, { method: "POST" });
     const { quantity } = await res.json();
     cardOwned.textContent = `Du hast diese Karte: ${quantity}×`;
     addBtn.textContent = "✓ Hinzugefügt!";

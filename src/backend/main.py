@@ -196,8 +196,12 @@ def get_db() -> sqlite3.Connection:
 # Image preprocessing + OCR
 # ---------------------------------------------------------------------------
 
-def save_debug(img: np.ndarray, roi: np.ndarray, ocr_raw: str, result: dict) -> None:
-    """Save original image, preprocessed ROI, and OCR result to data/debug/."""
+def save_debug(img: np.ndarray, roi: np.ndarray, ocr_raw: str, result: dict) -> str:
+    """Save original image, preprocessed ROI, and OCR result to data/debug/.
+
+    Returns the scan_id (timestamp prefix) so callers can pass it back
+    when the card is added to the collection.
+    """
     ts = datetime.utcnow().strftime("%Y%m%dT%H%M%S%f")
     base = DEBUG_DIR / ts
     cv2.imwrite(str(base) + "_original.jpg", img)
@@ -209,6 +213,7 @@ def save_debug(img: np.ndarray, roi: np.ndarray, ocr_raw: str, result: dict) -> 
     (base.parent / (base.name + "_result.json")).write_text(
         json.dumps({"ocr_raw": ocr_raw, **slim}, ensure_ascii=False, indent=2)
     )
+    return ts
 
 
 def _ocr_strip(roi_bgr: np.ndarray) -> str:
@@ -806,8 +811,8 @@ async def scan(file: UploadFile = File(...)):
         number, set_total, set_code = "?", None, None
     elif extracted is None:
         payload = {"matches": [], "error": "No collector number found"}
-        save_debug(img, roi, raw_text, payload)
-        return {"ocr_raw": raw_text, "debug_image": debug_image, **payload}
+        scan_id = save_debug(img, roi, raw_text, payload)
+        return {"ocr_raw": raw_text, "debug_image": debug_image, "scan_id": scan_id, **payload}
     else:
         number, set_total, set_code = extracted
         matches = enrich_with_set_name(cards_by_number(number, set_total, set_code))
@@ -819,8 +824,8 @@ async def scan(file: UploadFile = File(...)):
                "matches": matches, "llm_used": llm_used, "llm_name": llm_name,
                "energy_canonical": canonical if energy_method else None,
                "energy_method": energy_method}
-    save_debug(img, roi, raw_text, payload)
-    return {"ocr_raw": raw_text, "debug_image": debug_image, **payload}
+    scan_id = save_debug(img, roi, raw_text, payload)
+    return {"ocr_raw": raw_text, "debug_image": debug_image, "scan_id": scan_id, **payload}
 
 
 @app.get("/lookup")
@@ -945,7 +950,7 @@ def get_collection_item(user_id: str, card_id: str):
 
 
 @app.post("/collection/{user_id}/{card_id}/add")
-def add_to_collection(user_id: str, card_id: str):
+def add_to_collection(user_id: str, card_id: str, scan_id: str | None = None):
     conn = get_db()
     try:
         # Lazy enrichment on first add — silent fallback if TCGdex is unavailable
@@ -963,6 +968,14 @@ def add_to_collection(user_id: str, card_id: str):
         ).fetchone()["quantity"]
     finally:
         conn.close()
+    # Mark the originating scan as successfully added (for debug correlation)
+    if scan_id:
+        marker = DEBUG_DIR / f"{scan_id}_added.json"
+        marker.write_text(json.dumps({
+            "scan_id": scan_id, "card_id": card_id,
+            "user_id": user_id, "quantity": qty,
+            "added_at": datetime.utcnow().isoformat(),
+        }, ensure_ascii=False, indent=2))
     return {"quantity": qty}
 
 
